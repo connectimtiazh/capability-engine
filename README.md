@@ -51,9 +51,9 @@ HEADLESS=1 npm run discover -- --goal "look up member 40021 and read their curre
 ```
 
 ```
-discovery ok  run=disc_349ee480  steps=2
+discovery ok  run=disc_<id>  steps=2
 capability    quest-core/member.savings_balance@1.0.0
-evidence      store\runs\disc_349ee480
+evidence      store\runs\disc_<id>
 ```
 
 **2. Handoff demo.** `--wait` forces a visible (headful) browser regardless of `HEADLESS`, because
@@ -99,7 +99,7 @@ approved quest-core/member.savings_balance@1.0.0 (by operator:local); replayStat
 HEADLESS=1 npm run replay -- --capability quest-core/member.savings_balance@1.0.0 --params '{"memberId":"40021"}'
 ```
 ```
-{ "status": "success", "outputs": { "savingsBalance": 1284.55 }, "evidence": "store\\runs\\rep_68527e8a" }
+{ "status": "success", "outputs": { "savingsBalance": 1284.55 }, "evidence": "store\\runs\\rep_<id>" }
 ```
 
 Cross-member replay — same recorded capability, a different member, proving parameterisation:
@@ -108,7 +108,7 @@ Cross-member replay — same recorded capability, a different member, proving pa
 HEADLESS=1 npm run replay -- --capability quest-core/member.savings_balance@1.0.0 --params '{"memberId":"40023"}'
 ```
 ```
-{ "status": "success", "outputs": { "savingsBalance": 312 }, "evidence": "store\\runs\\rep_306638f8" }
+{ "status": "success", "outputs": { "savingsBalance": 312 }, "evidence": "store\\runs\\rep_<id>" }
 ```
 
 An unknown member — a declared business outcome, not an error:
@@ -117,7 +117,7 @@ An unknown member — a declared business outcome, not an error:
 HEADLESS=1 npm run replay -- --capability quest-core/member.savings_balance@1.0.0 --params '{"memberId":"99999"}'
 ```
 ```
-{ "status": "business_outcome", "code": "MEMBER_NOT_FOUND", "message": "No member exists with that number.", "evidence": "store\\runs\\rep_47af3c52" }
+{ "status": "business_outcome", "code": "MEMBER_NOT_FOUND", "message": "No member exists with that number.", "evidence": "store\\runs\\rep_<id>" }
 ```
 
 An injected, unrecognised dialog — exit code 2, blocked rather than guessed at:
@@ -126,7 +126,7 @@ An injected, unrecognised dialog — exit code 2, blocked rather than guessed at
 HEADLESS=1 npm run replay -- --capability quest-core/member.savings_balance@1.0.0 --params '{"memberId":"40021"}' --inject unknown-dialog
 ```
 ```
-{ "status": "blocked", "interventionId": "iv_6d1abe", "reason": "unrecognised_state_or_missing_control", "evidence": "store\\runs\\rep_f0e17093" }
+{ "status": "blocked", "interventionId": "iv_6d1abe", "reason": "unrecognised_state_or_missing_control", "evidence": "store\\runs\\rep_<id>" }
 ```
 
 **5. Catalog.** Lists every saved capability — draft and approved alike — as a callable tool
