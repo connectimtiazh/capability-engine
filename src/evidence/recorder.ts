@@ -1,6 +1,15 @@
 import { mkdir, appendFile, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
+/** The one scrub implementation, shared by every writer of evidence to disk — the
+ *  timeline (via Recorder.scrub), and anything else (like a discovery trace) that is
+ *  serialised and written outside the Recorder's own append-only log. */
+export function scrubText(text: string, redactions: string[]): string {
+  let out = text
+  for (const v of redactions.filter((r) => r.length >= 3)) out = out.split(v).join('[redacted]')
+  return out
+}
+
 export class Recorder {
   readonly dir: string
   private readonly timeline: string
@@ -23,9 +32,7 @@ export class Recorder {
   }
 
   private scrub(line: string): string {
-    let out = line
-    for (const v of this.redactions) out = out.split(v).join('[redacted]')
-    return out
+    return scrubText(line, this.redactions)
   }
 
   /** Append-only. A crash mid-run leaves a readable file rather than a corrupt one,

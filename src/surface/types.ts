@@ -5,6 +5,10 @@ export interface A11yNode {
   labelText?: string
   framePath: string[]
   ref: string
+  /** The live current value of an input/select, '' for anything else. Lets a
+   *  checkpoint assert a field actually holds something, not merely that a node
+   *  with the right role and name exists on screen. */
+  value?: string
 }
 
 export interface FrameSnapshot {

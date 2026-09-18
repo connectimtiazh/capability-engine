@@ -4,6 +4,7 @@ import { runDiscovery } from '../discover/loop.js'
 import { OpenRouterModel } from '../discover/model.js'
 import { compile } from '../compile/compile.js'
 import { FileStore } from '../capability/store.js'
+import { scrubText } from '../evidence/recorder.js'
 
 function arg(name: string, fallback?: string): string {
   const i = process.argv.indexOf(`--${name}`)
@@ -29,11 +30,16 @@ async function main(): Promise<void> {
     params,
   })
 
-  await mkdir(join(STORE, 'runs', trace.runId), { recursive: true })
-  await writeFile(join(STORE, 'runs', trace.runId, 'trace.json'), JSON.stringify(trace, null, 2), 'utf8')
-
+  // Compile from the in-memory trace, before any scrubbing — the capability's steps
+  // are parameterised at compile time regardless, and compiling from the scrubbed
+  // JSON would risk feeding "[redacted]" into a step that expects a real recorded
+  // literal to lift into a parameter.
   const capability = compile(trace, { key, params })
   await new FileStore(STORE).saveCapability(capability)
+
+  await mkdir(join(STORE, 'runs', trace.runId), { recursive: true })
+  const traceJson = scrubText(JSON.stringify(trace, null, 2), Object.values(params))
+  await writeFile(join(STORE, 'runs', trace.runId, 'trace.json'), traceJson, 'utf8')
 
   console.log(`discovery ok  run=${trace.runId}  steps=${trace.steps.length}`)
   console.log(`capability    ${capability.key}@${capability.version}`)

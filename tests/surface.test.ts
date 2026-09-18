@@ -47,6 +47,19 @@ describe('WebSurface against the hostile app', () => {
     expect(cp.ok).toBe(true)
   })
 
+  it('fails a field-has-value checkpoint when the control is present but empty', async () => {
+    await surface.open(base + '/member/search')
+    const cp = { kind: 'field-has-value' as const, role: 'textbox', name: 'Member No.', framePath: [] }
+    const empty = await surface.checkpointHolds(cp)
+    expect(empty.ok).toBe(false)
+    expect(empty.observed).toMatch(/empty/i)
+
+    const box = await surface.resolve({ role: 'textbox', name: 'Member No.', framePath: [], fallbacks: [] })
+    if (box.kind !== 'one') throw new Error('box not resolved')
+    await surface.act('fill', box.node, '40021')
+    expect((await surface.checkpointHolds(cp)).ok).toBe(true)
+  })
+
   it('refuses to navigate outside the allowlist', async () => {
     await expect(surface.open('http://evil.test/')).rejects.toBeInstanceOf(PolicyError)
   })

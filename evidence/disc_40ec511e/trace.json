@@ -1,11 +1,11 @@
 {
-  "goal": "look up member 40021 and read their current savings balance",
+  "goal": "look up member [redacted] and read their current savings balance",
   "runId": "disc_40ec511e",
   "entryPoint": "http://localhost:4000/member/search",
   "model": "anthropic/claude-sonnet-5",
   "steps": [
     {
-      "intent": "Enter member number 40021",
+      "intent": "Enter member number [redacted]",
       "action": "fill",
       "target": {
         "role": "textbox",
@@ -14,8 +14,8 @@
         "fallbacks": []
       },
       "resolvedVia": "primary",
-      "value": "40021",
-      "valueLiteral": "40021",
+      "value": "[redacted]",
+      "valueLiteral": "[redacted]",
       "urlAfter": "http://localhost:4000/member/search",
       "textAfter": "QuestCore Member Services 8.3\n\nMember No.\t\t\nEnter a member number and select Inquire."
     },
@@ -30,12 +30,12 @@
       },
       "resolvedVia": "primary",
       "urlAfter": "http://localhost:4000/member/inquire",
-      "textAfter": "QuestCore Member Services 8.3\n\nMember\tA. Whitfield (40021)\nShare Balance\t1284.55\nAs Of\t2026-09-17\n\n\nMember No.\t\t\nEnter a member number and select Inquire."
+      "textAfter": "QuestCore Member Services 8.3\n\nMember\tA. Whitfield ([redacted])\nShare Balance\t1284.55\nAs Of\t2026-09-17\n\n\nMember No.\t\t\nEnter a member number and select Inquire."
     }
   ],
   "extracted": {
     "savingsBalance": {
-      "value": "QuestCore Member Services 8.3\n\nMember\tA. Whitfield (40021)\nShare Balance\t1284.55\nAs Of\t2026-09-17\n\n\nMember No.\t\t\nEnter a member number and select Inquire.",
+      "value": "QuestCore Member Services 8.3\n\nMember\tA. Whitfield ([redacted])\nShare Balance\t1284.55\nAs Of\t2026-09-17\n\n\nMember No.\t\t\nEnter a member number and select Inquire.",
       "as": "number",
       "from": {
         "role": "table",
@@ -62,13 +62,13 @@
       "url": "http://localhost:4000/member/search"
     },
     {
-      "text": "QuestCore Member Services 8.3\n\nMember\tA. Whitfield (40021)\nShare Balance\t1284.55\nAs Of\t2026-09-17\n\n\nMember No.\t\t\nEnter a member number and select Inquire.",
+      "text": "QuestCore Member Services 8.3\n\nMember\tA. Whitfield ([redacted])\nShare Balance\t1284.55\nAs Of\t2026-09-17\n\n\nMember No.\t\t\nEnter a member number and select Inquire.",
       "url": "http://localhost:4000/member/inquire"
     },
     {
-      "text": "QuestCore Member Services 8.3\n\nMember\tA. Whitfield (40021)\nShare Balance\t1284.55\nAs Of\t2026-09-17\n\n\nMember No.\t\t\nEnter a member number and select Inquire.",
+      "text": "QuestCore Member Services 8.3\n\nMember\tA. Whitfield ([redacted])\nShare Balance\t1284.55\nAs Of\t2026-09-17\n\n\nMember No.\t\t\nEnter a member number and select Inquire.",
       "url": "http://localhost:4000/member/inquire"
     }
   ],
-  "finalText": "QuestCore Member Services 8.3\n\nMember\tA. Whitfield (40021)\nShare Balance\t1284.55\nAs Of\t2026-09-17\n\n\nMember No.\t\t\nEnter a member number and select Inquire."
+  "finalText": "QuestCore Member Services 8.3\n\nMember\tA. Whitfield ([redacted])\nShare Balance\t1284.55\nAs Of\t2026-09-17\n\n\nMember No.\t\t\nEnter a member number and select Inquire."
 }

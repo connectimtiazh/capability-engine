@@ -36,15 +36,19 @@ const EXTRACT = `() => {
     const role = roleOf(el)
     if (!role) continue
     const nameAttr = el.getAttribute('name') || undefined
-    const value = el.getAttribute('value') || ''
+    const attrValue = el.getAttribute('value') || ''
     const label = labelFor(el)
     const name =
-      role === 'button' ? (value || el.textContent.trim())
+      role === 'button' ? (attrValue || el.textContent.trim())
       : role === 'link' ? el.textContent.trim()
       : role === 'table' ? (el.textContent.trim().slice(0, 40))
       : label
+    // The live current value of an input/select — el.value is the IDL property (what
+    // the user actually typed or a script actually set), never the static HTML
+    // attribute, which is what a checkpoint needs to tell "filled" from "empty".
+    const liveValue = (el.tagName.toLowerCase() === 'input' || el.tagName.toLowerCase() === 'select') ? (el.value ?? '') : ''
     el.setAttribute('data-cap-ref', 'n' + i)
-    out.push({ role, name, nameAttr, labelText: label, ref: 'n' + (i++) })
+    out.push({ role, name, nameAttr, labelText: label, ref: 'n' + (i++), value: liveValue })
   }
   return out
 }`
@@ -156,8 +160,16 @@ export class WebSurface {
       const ok = nodes.some((n) => n.role === c.role && (!c.nameContains || n.name.includes(c.nameContains)))
       return { ok, observed: ok ? `role ${c.role} present` : `roles present: ${[...new Set(nodes.map((n) => n.role))].join(',')}` }
     }
-    const ok = nodes.some((n) => n.role === c.role && (n.name === c.name || n.labelText === c.name))
-    return { ok, observed: ok ? `field ${c.name} present` : `field ${c.name} not found` }
+    // field-has-value: a node existing is not evidence anything was typed into it — the
+    // field itself is on screen before and after a fill. This must check the node's
+    // actual current value, or it can never fail while the control is merely present.
+    const match = nodes.find((n) => n.role === c.role && (n.name === c.name || n.labelText === c.name))
+    if (!match) return { ok: false, observed: `field ${c.name} not found` }
+    const hasValue = (match.value ?? '').trim().length > 0
+    return {
+      ok: hasValue,
+      observed: hasValue ? `field ${c.name} present` : `field ${c.name} found but empty`,
+    }
   }
 
   async readText(t: TargetDescriptor): Promise<string> {
