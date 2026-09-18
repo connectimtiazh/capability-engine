@@ -51,11 +51,14 @@ describe('WebSurface against the hostile app', () => {
     await expect(surface.open('http://evil.test/')).rejects.toBeInstanceOf(PolicyError)
   })
 
-  it('refuses to act at all when the lease is not held', async () => {
+  it('refuses to read or act when the lease is not held', async () => {
     await surface.open(base + '/member/search')
     surface.setContext({ leaseHeld: false })
+    await expect(surface.resolve({ role: 'button', name: 'Inquire', framePath: [], fallbacks: [] })).rejects.toBeInstanceOf(PolicyError)
+    surface.setContext({ leaseHeld: true })
     const r = await surface.resolve({ role: 'button', name: 'Inquire', framePath: [], fallbacks: [] })
     if (r.kind !== 'one') throw new Error('not resolved')
+    surface.setContext({ leaseHeld: false })
     await expect(surface.act('click', r.node)).rejects.toBeInstanceOf(PolicyError)
     surface.setContext({ leaseHeld: true })
   })

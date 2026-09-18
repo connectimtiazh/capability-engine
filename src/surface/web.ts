@@ -6,7 +6,7 @@ import type { PolicyConfig } from '../policy/allowlist.js'
 import { resolveDescriptor } from './resolver.js'
 import { PolicyError, type A11yNode, type FrameSnapshot, type Observation, type Resolution } from './types.js'
 
-export type { Observation, A11yNode, Resolution } from './types.js'
+export type { Observation, A11yNode, Resolution, FrameSnapshot } from './types.js'
 export { PolicyError } from './types.js'
 
 const EXTRACT = `() => {
@@ -91,6 +91,7 @@ export class WebSurface {
   }
 
   async observe(): Promise<Observation> {
+    this.check('read', this.page.url())
     const frames: FrameSnapshot[] = []
     for (const { path, frame } of this.frames()) {
       let nodes: Omit<A11yNode, 'framePath'>[] = []
@@ -160,11 +161,17 @@ export class WebSurface {
     return frames.map((f) => f.text).join('\n')
   }
 
-  async screenshot(path: string): Promise<void> {
-    await this.page.screenshot({ path, fullPage: true })
+  async screenshot(path: string, mask: string[] = []): Promise<void> {
+    this.check('read', this.page.url())
+    await this.page.screenshot({
+      path,
+      fullPage: true,
+      ...(mask.length ? { mask: mask.map((sel) => this.page.locator(sel)) } : {}),
+    })
   }
 
   async domSnapshot(path: string): Promise<void> {
+    this.check('read', this.page.url())
     await writeFile(path, await this.page.content(), 'utf8')
   }
 
