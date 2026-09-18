@@ -32,12 +32,9 @@ export function toolDefinition(c: Capability): ToolDefinition {
     parameters: {
       type: 'object',
       required: c.inputs.required,
-      properties: Object.fromEntries(
-        Object.entries(c.inputs.properties).map(([k, v]) => [
-          k,
-          { type: v.type, ...(v.pattern ? { pattern: v.pattern } : {}) },
-        ]),
-      ),
+      // Passed through verbatim, exactly as `returns` is. The catalog must describe the
+      // contract replay actually enforces — re-authoring either side invites drift.
+      properties: c.inputs.properties,
     },
     returns: c.outputs as unknown as Record<string, unknown>,
     // Autonomy is a permission a behaviour earns; the evidence is replay history.

@@ -8,6 +8,17 @@ async function main(): Promise<void> {
   const store = new FileStore(STORE)
   const [, , cmd, name] = process.argv
 
+  if (cmd === undefined) {
+    console.log(JSON.stringify(await buildCatalog(store), null, 2))
+    return
+  }
+
+  if (cmd === 'invoke' && !name) {
+    console.log('usage: npm run catalog -- invoke <name> [--args \'<json>\']')
+    process.exitCode = 1
+    return
+  }
+
   if (cmd === 'invoke' && name) {
     const i = process.argv.indexOf('--args')
     const args = JSON.parse(i >= 0 ? (process.argv[i + 1] ?? '{}') : '{}') as Record<string, unknown>
@@ -38,7 +49,8 @@ async function main(): Promise<void> {
     return
   }
 
-  console.log(JSON.stringify(await buildCatalog(store), null, 2))
+  console.log('usage: npm run catalog -- [invoke <name> [--args \'<json>\']]')
+  process.exitCode = 1
 }
 
 main().catch((e) => { console.error(String(e)); process.exit(1) })
