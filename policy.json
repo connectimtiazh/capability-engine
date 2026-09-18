@@ -1,0 +1,5 @@
+{
+  "allowedOrigins": ["http://localhost:4000"],
+  "allowedPathPrefixes": ["/", "/nav", "/member"],
+  "allowedActions": ["navigate", "click", "fill", "read", "waitFor", "dismiss"]
+}
