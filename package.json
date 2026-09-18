@@ -1,0 +1,29 @@
+{
+  "name": "interface-capability-engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "target-app": "tsx target-app/server.ts",
+    "discover": "tsx src/cli/discover.ts",
+    "replay": "tsx src/cli/replay.ts",
+    "operator": "tsx src/cli/operator.ts",
+    "catalog": "tsx src/cli/catalog.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "playwright": "^1.47.0",
+    "zod": "^3.23.8",
+    "zod-to-json-schema": "^3.23.2"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.5.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}
