@@ -4,6 +4,7 @@ import { join } from 'node:path'
 export class Recorder {
   readonly dir: string
   private readonly timeline: string
+  private redactions: string[] = []
 
   constructor(storeRoot: string, readonly runId: string) {
     this.dir = join(storeRoot, 'runs', runId)
@@ -14,11 +15,25 @@ export class Recorder {
     await mkdir(join(this.dir, 'evidence'), { recursive: true })
   }
 
+  /** Literal values to scrub from every line before it is written. Supplied by the
+   *  caller because at discovery time no input schema exists yet — these are declared
+   *  by the operator, not guessed from the text. */
+  setRedactions(values: string[]): void {
+    this.redactions = values.filter((v) => v.length >= 3)
+  }
+
+  private scrub(line: string): string {
+    let out = line
+    for (const v of this.redactions) out = out.split(v).join('[redacted]')
+    return out
+  }
+
   /** Append-only. A crash mid-run leaves a readable file rather than a corrupt one,
    *  and this single file is simultaneously the debug log, the audit trail and the
    *  evidence artifact. */
   async event(type: string, data: Record<string, unknown> = {}): Promise<void> {
-    await appendFile(this.timeline, JSON.stringify({ at: new Date().toISOString(), type, ...data }) + '\n', 'utf8')
+    const line = JSON.stringify({ at: new Date().toISOString(), type, ...data })
+    await appendFile(this.timeline, this.scrub(line) + '\n', 'utf8')
   }
 
   evidencePath(label: string, ext: string): string {

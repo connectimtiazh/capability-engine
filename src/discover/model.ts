@@ -57,7 +57,11 @@ export class OpenRouterModel implements ModelClient {
     })
     if (!res.ok) throw new Error(`openrouter ${res.status}: ${await res.text()}`)
     const body = (await res.json()) as { choices: { message: { content: string } }[] }
-    const text = body.choices[0]?.message.content ?? ''
-    return JSON.parse(text) as ProposedAction
+    const text = body.choices?.[0]?.message?.content ?? ''
+    try {
+      return JSON.parse(text) as ProposedAction
+    } catch {
+      throw new Error(`model returned unparseable JSON: ${text.slice(0, 500)}`)
+    }
   }
 }

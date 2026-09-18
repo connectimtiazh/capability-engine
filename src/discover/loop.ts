@@ -35,6 +35,7 @@ export interface DiscoveryOptions {
   headless?: boolean
   maxSteps?: number
   policyOverride?: PolicyConfig
+  params?: Record<string, string>
 }
 
 export async function runDiscovery(opts: DiscoveryOptions): Promise<Trace> {
@@ -42,6 +43,7 @@ export async function runDiscovery(opts: DiscoveryOptions): Promise<Trace> {
   const runId = `disc_${randomUUID().slice(0, 8)}`
   const rec = new Recorder(opts.storeRoot, runId)
   await rec.init()
+  rec.setRedactions(Object.values(opts.params ?? {}))
 
   const surface = new WebSurface(policy, opts.headless ?? false)
   await surface.start()

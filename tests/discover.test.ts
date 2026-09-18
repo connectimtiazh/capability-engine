@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import type { Server } from 'node:http'
-import { mkdtemp } from 'node:fs/promises'
+import { mkdtemp, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createServer } from '../target-app/server.js'
@@ -58,6 +58,35 @@ describe('runDiscovery', () => {
     expect(trace.steps[0]!.action).toBe('fill')
     expect(trace.extracted.savingsBalance!.value).toContain('1284.55')
     expect(trace.observedOutcomes.length).toBeGreaterThan(0)
+  })
+
+  it('redacts declared parameter values from the on-disk timeline', async () => {
+    const store = await mkdtemp(join(tmpdir(), 'disc-'))
+    const model = new ScriptedModel([
+      { kind: 'act', action: 'fill', intent: 'Type the member number', value: '40021',
+        target: { role: 'textbox', name: 'Member No.', framePath: [], fallbacks: [] } },
+      { kind: 'act', action: 'click', intent: 'Submit the inquiry',
+        target: { role: 'button', name: 'Inquire', framePath: [], fallbacks: [] } },
+      { kind: 'extract', name: 'savingsBalance', as: 'number', intent: 'Read the share balance',
+        from: { role: 'table', name: '', framePath: [], fallbacks: [] } },
+      { kind: 'done', summary: 'read the balance' },
+    ])
+
+    const trace = await runDiscovery({
+      goal: 'look up member 40021 and read their savings balance',
+      entryPoint: base + '/member/search',
+      model, storeRoot: store, headless: true, maxSteps: 10,
+      params: { memberId: '40021' },
+      policyOverride: {
+        allowedOrigins: [base],
+        allowedPathPrefixes: ['/', '/nav', '/member'],
+        allowedActions: ['navigate', 'click', 'fill', 'read', 'waitFor', 'dismiss'],
+      },
+    })
+
+    const timeline = await readFile(join(store, 'runs', trace.runId, 'timeline.jsonl'), 'utf8')
+    expect(timeline).not.toContain('40021')
+    expect(timeline).toContain('[redacted]')
   })
 
   it('stops with a stuck trace when the model gives up', async () => {
