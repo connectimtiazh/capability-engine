@@ -57,6 +57,12 @@ export async function replay(opts: ReplayOptions): Promise<ReplayResult> {
     }
   }
 
+  // F34a: Best-effort timeline write. Used only on paths that are already returning a failure
+  // or a block: losing one log line is survivable, losing the structured result is not.
+  const note = async (type: string, data: Record<string, unknown>): Promise<void> => {
+    try { await rec.event(type, data) } catch { /* evidence is best-effort while failing */ }
+  }
+
   // F30: Everything else in a try/catch so setup errors are caught and returned,
   // not thrown.
   try {
@@ -114,14 +120,14 @@ export async function replay(opts: ReplayOptions): Promise<ReplayResult> {
         await rec.shot(surface, `blocked-${step}`)
         await rec.dom(surface, `blocked-${step}`)
       } catch (e) {
-        await rec.event('evidence.capture_failed', { step, error: String(e) })
+        await note('evidence.capture_failed', { step, error: String(e) })
       }
       lease = await leases.release(sessionId, 'human:operator')
       const iv = await interventions.raise({
         runId, capability: opts.ref, step, reason,
         evidenceDir: rec.dir, redactedParams: redacted,
       })
-      await rec.event('replay.blocked', { step, reason, interventionId: iv.id, leaseToken: lease.token })
+      await note('replay.blocked', { step, reason, interventionId: iv.id, leaseToken: lease.token })
       // F32: Count blocked as an attempt (no success).
       await store.recordReplayAttempt(opts.ref, false, null)
       return { status: 'blocked', interventionId: iv.id, reason, evidence: rec.dir }
@@ -138,10 +144,10 @@ export async function replay(opts: ReplayOptions): Promise<ReplayResult> {
         await rec.shot(surface, `failed-${step}`)
         await rec.dom(surface, `failed-${step}`)
       } catch (e) {
-        await rec.event('evidence.capture_failed', { step, error: String(e) })
+        await note('evidence.capture_failed', { step, error: String(e) })
       }
       const r: ReplayResult = { status: 'failed', step, expected, observed, class: cls, evidence: rec.dir }
-      await rec.event('replay.result', { result: r })
+      await note('replay.result', { result: r })
       await store.recordReplayAttempt(opts.ref, false, `${cls} at ${step}`)
       return r
     }
@@ -273,7 +279,7 @@ export async function replay(opts: ReplayOptions): Promise<ReplayResult> {
   } catch (e) {
     // F30: Setup errors (before try block) — caught and classified.
     const msg = String(e)
-    await rec.event('replay.error', { error: msg })
+    await note('replay.error', { error: msg })
 
     // F30: Classify setup errors: missing capability is input_invalid, others are surface_error.
     if (/capability not found/i.test(msg)) {
@@ -281,7 +287,7 @@ export async function replay(opts: ReplayOptions): Promise<ReplayResult> {
         status: 'failed', step: '(capability)', expected: `capability ${opts.ref}`,
         observed: msg, class: 'input_invalid', evidence: rec.dir,
       }
-      await rec.event('replay.result', { result: r })
+      await note('replay.result', { result: r })
       // Don't try to record stats on a capability that doesn't exist.
       try {
         await store.recordReplayAttempt(opts.ref, false, 'input_invalid')
@@ -295,7 +301,7 @@ export async function replay(opts: ReplayOptions): Promise<ReplayResult> {
       status: 'failed', step: '(setup)', expected: 'the run to initialize',
       observed: msg, class: 'surface_error', evidence: rec.dir,
     }
-    await rec.event('replay.result', { result: r })
+    await note('replay.result', { result: r })
     try {
       await store.recordReplayAttempt(opts.ref, false, 'setup_failed')
     } catch {

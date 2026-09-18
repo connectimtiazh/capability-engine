@@ -65,8 +65,14 @@ export class WebSurface {
 
   async start(): Promise<void> {
     this.browser = await chromium.launch({ headless: this.headless })
-    this.context = await this.browser.newContext()
-    this.page = await this.context.newPage()
+    try {
+      this.context = await this.browser.newContext()
+      this.page = await this.context.newPage()
+    } catch (e) {
+      // Don't leak a live browser process when only the context or page failed.
+      await this.browser.close().catch(() => {})
+      throw e
+    }
   }
 
   /** Every action funnels through here. The gate lives inside the only module that

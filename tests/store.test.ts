@@ -83,4 +83,13 @@ describe('FileStore', () => {
     const got = await store.loadCapability(ref)
     expect(got.approval.replayStats).toMatchObject({ attempts: 2, successes: 1, lastFailure: 'checkpoint_failed at s1' })
   })
+
+  it('does not erase the last real failure when an attempt reports none', async () => {
+    await store.saveCapability(cap())
+    const ref = 'quest-core/member.savings_balance@1.0.0'
+    await store.recordReplayAttempt(ref, false, 'checkpoint_failed at s2')
+    await store.recordReplayAttempt(ref, false, null)
+    const got = await store.loadCapability(ref)
+    expect(got.approval.replayStats).toMatchObject({ attempts: 2, successes: 0, lastFailure: 'checkpoint_failed at s2' })
+  })
 })

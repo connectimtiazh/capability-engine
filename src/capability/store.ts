@@ -118,7 +118,9 @@ export class FileStore {
     const c = await this.loadCapability(ref)
     c.approval.replayStats.attempts += 1
     if (ok) c.approval.replayStats.successes += 1
-    else c.approval.replayStats.lastFailure = failure
+    // `null` means "no new failure to record" — a blocked run counts as an attempt but must not
+    // erase the last real failure, which is what a reviewer reads when deciding on autonomy.
+    else if (failure !== null) c.approval.replayStats.lastFailure = failure
     await this.saveCapability(c)
   }
 }
