@@ -17,15 +17,18 @@ const KNOWN_OUTCOMES: { code: string; text: string; message: string }[] = [
  *  (the balance itself, or a date): a checkpoint anchored on content would only ever
  *  pass for the record it was recorded against, which defeats parameterisation and
  *  replayability entirely. If nothing on screen is safe to anchor on, compilation
- *  refuses rather than silently emitting a capability that can only replay once. */
+ *  refuses rather than silently emitting a capability that can only replay once.
+ *  Novelty uses the same substring predicate replay uses to verify the checkpoint
+ *  (`WebSurface.checkpointHolds` tests `text-present` with `includes`), so a candidate
+ *  that already appears anywhere in the prior screen's text — even as a substring of a
+ *  longer prior line — can never be mistaken for evidence that the action did anything. */
 function distinctiveLine(finalText: string, priorText: string, volatile: string[] = []): string {
   const carriesVolatile = (l: string): boolean =>
     volatile.some((v) => v.length >= 3 && l.includes(v))
   const units = (t: string): string[] => t.split(/[\n\t]/).map((l) => l.trim())
-  const prior = new Set(units(priorText))
   const lines = units(finalText)
   const candidates = lines.filter(
-    (l) => l.length >= 4 && l.length <= 60 && !prior.has(l) && !carriesVolatile(l),
+    (l) => l.length >= 4 && l.length <= 60 && !priorText.includes(l) && !carriesVolatile(l),
   )
   if (candidates[0]) return candidates[0]
   const safe = lines.filter((l) => l.length >= 4 && !carriesVolatile(l))

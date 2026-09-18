@@ -13,11 +13,17 @@ export function extractAnchored(
   rowHeader: string,
   as: 'string' | 'number' | 'date',
 ): ExtractResult {
-  const line = text.split('\n').map((l) => l.trim()).find((l) => l.startsWith(rowHeader))
-  if (!line) {
-    return { ok: false, observed: `no line beginning with "${rowHeader}" on screen` }
+  const lines = text.split('\n').map((l) => l.trim())
+  const isLabel = (cell: string): boolean => cell.trim().replace(/:$/, '') === rowHeader
+  let raw: string | undefined
+  const exact = lines.find((l) => isLabel(l.split('\t')[0] ?? ''))
+  if (exact) {
+    raw = exact.split('\t')[1]?.trim()
+  } else {
+    const loose = lines.find((l) => l.startsWith(rowHeader) && /^[\s:]/.test(l.slice(rowHeader.length)))
+    if (loose) raw = loose.slice(rowHeader.length).replace(/^[\s:]+/, '').split('\t')[0]!.trim()
   }
-  const raw = line.slice(rowHeader.length).replace(/^[\s:]+/, '').split('\t')[0]!.trim()
+  if (raw === undefined) return { ok: false, observed: `no row labelled "${rowHeader}" on screen` }
   if (!raw) return { ok: false, observed: `"${rowHeader}" present but no value beside it` }
 
   if (as === 'number') {

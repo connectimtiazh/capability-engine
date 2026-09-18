@@ -22,4 +22,12 @@ describe('extractAnchored', () => {
   it('does not read a neighbouring row', () => {
     expect(extractAnchored(screen, 'Share Balance', 'number')).not.toMatchObject({ value: 40021 })
   })
+  it('does not mistake a longer label for a shorter one', () => {
+    const s = 'Share Balance\t1284.55\nShare\t7'
+    expect(extractAnchored(s, 'Share', 'number')).toEqual({ ok: true, value: 7 })
+    expect(extractAnchored(s, 'Share Balance', 'number')).toEqual({ ok: true, value: 1284.55 })
+  })
+  it('reads a "Label: value" line without tabs', () => {
+    expect(extractAnchored('Share Balance: 1,284.55', 'Share Balance', 'number')).toEqual({ ok: true, value: 1284.55 })
+  })
 })
