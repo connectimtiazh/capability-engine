@@ -1,0 +1,21 @@
+{
+  "runId": "rep_61488be7",
+  "capability": "quest-core/member.savings_balance@1.0.0",
+  "step": "s2",
+  "reason": "unapproved_mutation:click",
+  "evidenceDir": "store\\runs\\rep_61488be7",
+  "redactedParams": {
+    "memberId": "sha256:728a187ed87b"
+  },
+  "id": "iv_fcc784",
+  "state": "resolved",
+  "raisedAt": "2026-09-18T13:13:58.396Z",
+  "note": "approved by duty officer",
+  "humanActions": [
+    {
+      "urlBefore": "http://localhost:4000/member/search",
+      "urlAfter": "http://localhost:4000/member/inquire",
+      "note": "approved by duty officer"
+    }
+  ]
+}

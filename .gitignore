@@ -4,3 +4,5 @@ store/runs/
 store/control/
 store/interventions/
 *.log
+
+!evidence/

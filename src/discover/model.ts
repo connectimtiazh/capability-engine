@@ -31,7 +31,7 @@ export class OpenRouterModel implements ModelClient {
   readonly name: string
   constructor(
     private readonly apiKey = process.env.OPENROUTER_API_KEY ?? '',
-    model = process.env.DISCOVERY_MODEL ?? 'anthropic/claude-opus-4.1',
+    model = process.env.DISCOVERY_MODEL ?? 'anthropic/claude-sonnet-5',
   ) {
     if (!this.apiKey) throw new Error('OPENROUTER_API_KEY is not set')
     this.name = model

@@ -137,7 +137,14 @@ export function compile(
       action: 'read',
       target: e.from,
       extract: { into: name, as: e.as as 'string' | 'number' | 'date' },
-      checkpoint: { kind: 'text-present', text: distinctiveLine(trace.finalText, '', volatile), framePath: e.from.framePath },
+      // An extract step runs on the screen the previous step already produced, so
+      // novelty (distinctiveLine) is the wrong test here — there is no "prior" text
+      // to be novel against. When the extraction has an anchor, the only thing the
+      // step actually needs true before it can read is that the anchor's label is
+      // on screen; assert that instead of a vacuous novelty-derived line.
+      checkpoint: e.from.anchor
+        ? { kind: 'text-present', text: e.from.anchor.rowHeader, framePath: e.from.framePath }
+        : { kind: 'text-present', text: distinctiveLine(trace.finalText, '', volatile), framePath: e.from.framePath },
       onError: [{ when: 'timeout', do: 'retry', max: 2, backoffMs: 500 }],
       timeoutMs: 8000,
     })

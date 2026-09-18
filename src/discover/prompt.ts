@@ -27,7 +27,12 @@ Rules:
   proceed safely, reply with "stuck" and say why. Do not guess.
 - When the goal's information is visible on screen, "extract" it, then reply "done".
 - For "extract", anchor.rowHeader must be the exact visible LABEL next to the value — for
-  example "Share Balance" — never the value itself. Replay reads whatever sits beside that label.`
+  example "Share Balance" — never the value itself. Replay reads whatever sits beside that label.
+- The screen you are shown does not change just because you issued an "extract" — extraction is
+  recorded for you automatically, silently, the instant you propose it. Never repeat the same
+  "extract" twice: if your most recent action (see STEPS SO FAR) already reads "extract <name>",
+  the extraction already succeeded, and your only valid next reply is "done" summarising what you
+  found. Reissuing the identical "extract" is always wrong.`
 
 export function renderObservation(o: Observation): string {
   const lines: string[] = [`URL: ${o.url}`, `TITLE: ${o.title}`]

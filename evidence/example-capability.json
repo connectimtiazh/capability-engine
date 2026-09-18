@@ -1,0 +1,203 @@
+{
+  "apiVersion": "capability/v1",
+  "key": "quest-core/member.savings_balance",
+  "version": "1.0.0",
+  "title": "look up member {memberId} and read their current savings balance",
+  "description": "Discovered from the goal: look up member {memberId} and read their current savings balance",
+  "surface": {
+    "kind": "web"
+  },
+  "vendor": {
+    "product": "quest-core"
+  },
+  "inputs": {
+    "type": "object",
+    "required": [
+      "memberId"
+    ],
+    "properties": {
+      "memberId": {
+        "type": "string",
+        "pattern": "^[0-9]{5}$",
+        "x-sensitivity": "pii"
+      }
+    }
+  },
+  "outputs": {
+    "type": "object",
+    "required": [
+      "savingsBalance"
+    ],
+    "properties": {
+      "savingsBalance": {
+        "type": "number"
+      }
+    }
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "intent": "Enter member number {memberId}",
+      "action": "fill",
+      "target": {
+        "role": "textbox",
+        "name": "Member No.",
+        "framePath": [],
+        "fallbacks": [
+          {
+            "strategy": "nth-input-in-form",
+            "form": 0,
+            "index": 0
+          }
+        ]
+      },
+      "value": {
+        "fromInput": "memberId"
+      },
+      "checkpoint": {
+        "kind": "field-has-value",
+        "framePath": [],
+        "role": "textbox",
+        "name": "Member No."
+      },
+      "onError": [
+        {
+          "when": "dialog-present",
+          "match": "Message of the Day",
+          "do": "dismiss"
+        },
+        {
+          "when": "session-expired",
+          "do": "reauth"
+        },
+        {
+          "when": "timeout",
+          "do": "retry",
+          "max": 2,
+          "backoffMs": 500
+        }
+      ],
+      "timeoutMs": 8000
+    },
+    {
+      "id": "s2",
+      "intent": "Submit member number search",
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "Inquire",
+        "framePath": [],
+        "fallbacks": []
+      },
+      "checkpoint": {
+        "kind": "text-present",
+        "framePath": [],
+        "text": "Share Balance"
+      },
+      "onError": [
+        {
+          "when": "dialog-present",
+          "match": "Message of the Day",
+          "do": "dismiss"
+        },
+        {
+          "when": "session-expired",
+          "do": "reauth"
+        },
+        {
+          "when": "timeout",
+          "do": "retry",
+          "max": 2,
+          "backoffMs": 500
+        }
+      ],
+      "timeoutMs": 8000
+    },
+    {
+      "id": "s3",
+      "intent": "Read savingsBalance from the result screen",
+      "action": "read",
+      "target": {
+        "role": "table",
+        "name": "",
+        "framePath": [],
+        "anchor": {
+          "kind": "table-cell",
+          "rowHeader": "Share Balance",
+          "offset": {
+            "col": 1
+          }
+        },
+        "fallbacks": []
+      },
+      "extract": {
+        "into": "savingsBalance",
+        "as": "number"
+      },
+      "checkpoint": {
+        "kind": "text-present",
+        "framePath": [],
+        "text": "Share Balance"
+      },
+      "onError": [
+        {
+          "when": "timeout",
+          "do": "retry",
+          "max": 2,
+          "backoffMs": 500
+        }
+      ],
+      "timeoutMs": 8000
+    }
+  ],
+  "successCondition": {
+    "kind": "text-present",
+    "text": "Share Balance"
+  },
+  "businessOutcomes": [
+    {
+      "code": "MEMBER_NOT_FOUND",
+      "detect": {
+        "kind": "text-present",
+        "text": "No record found"
+      },
+      "terminal": true,
+      "message": "No member exists with that number."
+    },
+    {
+      "code": "ACCOUNT_RESTRICTED",
+      "detect": {
+        "kind": "text-present",
+        "text": "Access restricted"
+      },
+      "terminal": true,
+      "message": "This member requires elevated entitlements."
+    }
+  ],
+  "risk": {
+    "class": "mutate",
+    "irreversible": false,
+    "requiresApproval": false
+  },
+  "provenance": {
+    "discoveredBy": "anthropic/claude-sonnet-5",
+    "discoveryRunId": "disc_40ec511e",
+    "recordedAt": "2026-09-18T13:30:38.198Z",
+    "humanEdits": [
+      {
+        "at": "2026-09-18T13:41:27.766Z",
+        "by": "operator:local",
+        "note": "approved for unattended replay"
+      }
+    ]
+  },
+  "approval": {
+    "state": "approved",
+    "approvedBy": "operator:local",
+    "replayStats": {
+      "attempts": 9,
+      "successes": 8,
+      "lastFailure": null
+    }
+  }
+}

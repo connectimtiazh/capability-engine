@@ -10,6 +10,7 @@
     "replay": "tsx src/cli/replay.ts",
     "operator": "tsx src/cli/operator.ts",
     "catalog": "tsx src/cli/catalog.ts",
+    "approve": "tsx src/cli/approve.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"

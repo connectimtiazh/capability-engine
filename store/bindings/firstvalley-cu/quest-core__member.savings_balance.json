@@ -1,0 +1,7 @@
+{
+  "tenant": "firstvalley-cu",
+  "capability": "quest-core/member.savings_balance@1.0.0",
+  "entryPoint": "http://localhost:4000/member/search",
+  "overrides": {},
+  "driftLog": []
+}

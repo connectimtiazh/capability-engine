@@ -1,0 +1,74 @@
+{
+  "goal": "look up member 40021 and read their current savings balance",
+  "runId": "disc_40ec511e",
+  "entryPoint": "http://localhost:4000/member/search",
+  "model": "anthropic/claude-sonnet-5",
+  "steps": [
+    {
+      "intent": "Enter member number 40021",
+      "action": "fill",
+      "target": {
+        "role": "textbox",
+        "name": "Member No.",
+        "framePath": [],
+        "fallbacks": []
+      },
+      "resolvedVia": "primary",
+      "value": "40021",
+      "valueLiteral": "40021",
+      "urlAfter": "http://localhost:4000/member/search",
+      "textAfter": "QuestCore Member Services 8.3\n\nMember No.\t\t\nEnter a member number and select Inquire."
+    },
+    {
+      "intent": "Submit member number search",
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "Inquire",
+        "framePath": [],
+        "fallbacks": []
+      },
+      "resolvedVia": "primary",
+      "urlAfter": "http://localhost:4000/member/inquire",
+      "textAfter": "QuestCore Member Services 8.3\n\nMember\tA. Whitfield (40021)\nShare Balance\t1284.55\nAs Of\t2026-09-17\n\n\nMember No.\t\t\nEnter a member number and select Inquire."
+    }
+  ],
+  "extracted": {
+    "savingsBalance": {
+      "value": "QuestCore Member Services 8.3\n\nMember\tA. Whitfield (40021)\nShare Balance\t1284.55\nAs Of\t2026-09-17\n\n\nMember No.\t\t\nEnter a member number and select Inquire.",
+      "as": "number",
+      "from": {
+        "role": "table",
+        "name": "",
+        "framePath": [],
+        "fallbacks": [],
+        "anchor": {
+          "kind": "table-cell",
+          "rowHeader": "Share Balance",
+          "offset": {
+            "col": 1
+          }
+        }
+      }
+    }
+  },
+  "observedOutcomes": [
+    {
+      "text": "QuestCore Member Services 8.3\n\nMember No.\t\t\nEnter a member number and select Inquire.",
+      "url": "http://localhost:4000/member/search"
+    },
+    {
+      "text": "QuestCore Member Services 8.3\n\nMember No.\t\t\nEnter a member number and select Inquire.",
+      "url": "http://localhost:4000/member/search"
+    },
+    {
+      "text": "QuestCore Member Services 8.3\n\nMember\tA. Whitfield (40021)\nShare Balance\t1284.55\nAs Of\t2026-09-17\n\n\nMember No.\t\t\nEnter a member number and select Inquire.",
+      "url": "http://localhost:4000/member/inquire"
+    },
+    {
+      "text": "QuestCore Member Services 8.3\n\nMember\tA. Whitfield (40021)\nShare Balance\t1284.55\nAs Of\t2026-09-17\n\n\nMember No.\t\t\nEnter a member number and select Inquire.",
+      "url": "http://localhost:4000/member/inquire"
+    }
+  ],
+  "finalText": "QuestCore Member Services 8.3\n\nMember\tA. Whitfield (40021)\nShare Balance\t1284.55\nAs Of\t2026-09-17\n\n\nMember No.\t\t\nEnter a member number and select Inquire."
+}

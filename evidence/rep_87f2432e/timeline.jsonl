@@ -1,0 +1,15 @@
+{"at":"2026-09-18T13:38:55.009Z","type":"replay.start","ref":"quest-core/member.savings_balance@1.0.0","tenant":"firstvalley-cu","params":{"memberId":"sha256:728a187ed87b"},"runId":"rep_87f2432e"}
+{"at":"2026-09-18T13:38:57.586Z","type":"step.start","id":"s1","intent":"Enter member number {memberId}","action":"fill"}
+{"at":"2026-09-18T13:38:58.462Z","type":"replay.blocked","step":"s1","reason":"unapproved_mutation:fill","interventionId":"iv_9a972d","leaseToken":2}
+{"at":"2026-09-18T13:38:58.464Z","type":"control.handoff","interventionId":"iv_9a972d","step":"s1","reason":"unapproved_mutation:fill","token":2}
+{"at":"2026-09-18T13:39:19.012Z","type":"control.handback","interventionId":"iv_9a972d","token":3,"urlBefore":"http://localhost:4000/member/search","urlAfter":"http://localhost:4000/member/search","note":"approved by duty officer"}
+{"at":"2026-09-18T13:39:19.016Z","type":"human.approved_step","interventionId":"iv_9a972d","step":"s1"}
+{"at":"2026-09-18T13:39:19.019Z","type":"step.start","id":"s1","intent":"Enter member number {memberId}","action":"fill"}
+{"at":"2026-09-18T13:39:19.170Z","type":"step.ok","id":"s1"}
+{"at":"2026-09-18T13:39:19.171Z","type":"step.start","id":"s2","intent":"Submit member number search","action":"click"}
+{"at":"2026-09-18T13:39:19.324Z","type":"replay.blocked","step":"s2","reason":"unapproved_mutation:click","interventionId":"iv_eae5e5","leaseToken":4}
+{"at":"2026-09-18T13:39:19.325Z","type":"control.handoff","interventionId":"iv_eae5e5","step":"s2","reason":"unapproved_mutation:click","token":4}
+{"at":"2026-09-18T13:39:34.219Z","type":"control.handback","interventionId":"iv_eae5e5","token":5,"urlBefore":"http://localhost:4000/member/search","urlAfter":"http://localhost:4000/member/inquire","note":"approved by duty officer"}
+{"at":"2026-09-18T13:39:34.220Z","type":"human.approved_step","interventionId":"iv_eae5e5","step":"s2"}
+{"at":"2026-09-18T13:39:34.221Z","type":"step.start","id":"s2","intent":"Submit member number search","action":"click"}
+{"at":"2026-09-18T13:39:34.470Z","type":"replay.result","result":{"status":"business_outcome","code":"MEMBER_NOT_FOUND","message":"No member exists with that number.","evidence":"store\\runs\\rep_87f2432e"}}

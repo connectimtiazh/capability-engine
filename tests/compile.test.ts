@@ -47,6 +47,24 @@ describe('compile', () => {
     expect(c.outputs.required).toContain('savingsBalance')
   })
 
+  it('anchors the extract step checkpoint on the anchor label, not a novelty-derived line', () => {
+    const anchoredTrace: Trace = {
+      ...trace,
+      extracted: {
+        savingsBalance: {
+          value: '1284.55', as: 'number',
+          from: {
+            role: 'table', name: '', framePath: [], fallbacks: [],
+            anchor: { kind: 'table-cell', rowHeader: 'Share Balance', offset: { col: 1 } },
+          },
+        },
+      },
+    }
+    const c = compile(anchoredTrace, { key: 'k', params: { memberId: '40021' } })
+    const extractStep = c.steps.find((s) => s.action === 'read')!
+    expect(extractStep.checkpoint).toEqual({ kind: 'text-present', text: 'Share Balance', framePath: [] })
+  })
+
   it('derives a success condition from the final screen', () => {
     const c = compile(trace, { key: 'k', params: { memberId: '40021' } })
     expect(c.successCondition).toMatchObject({ kind: 'text-present' })

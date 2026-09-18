@@ -1,0 +1,2 @@
+{"at":"2026-09-18T12:20:05.020Z","type":"replay.error","error":"Error: capability not found: quest-core/nope@1.0.0"}
+{"at":"2026-09-18T12:20:05.021Z","type":"replay.result","result":{"status":"failed","step":"(capability)","expected":"capability quest-core/nope@1.0.0","observed":"Error: capability not found: quest-core/nope@1.0.0","class":"input_invalid","evidence":"store\\runs\\rep_0f587827"}}

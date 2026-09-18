@@ -1,0 +1,15 @@
+{"at":"2026-09-18T13:31:07.092Z","type":"replay.start","ref":"quest-core/member.savings_balance@1.0.0","tenant":"firstvalley-cu","params":{"memberId":"sha256:728a187ed87b"},"runId":"rep_51bad52a"}
+{"at":"2026-09-18T13:31:09.592Z","type":"step.start","id":"s1","intent":"Enter member number {memberId}","action":"fill"}
+{"at":"2026-09-18T13:31:10.250Z","type":"replay.blocked","step":"s1","reason":"unapproved_mutation:fill","interventionId":"iv_5e1947","leaseToken":2}
+{"at":"2026-09-18T13:31:10.251Z","type":"control.handoff","interventionId":"iv_5e1947","step":"s1","reason":"unapproved_mutation:fill","token":2}
+{"at":"2026-09-18T13:31:26.183Z","type":"control.handback","interventionId":"iv_5e1947","token":3,"urlBefore":"http://localhost:4000/member/search","urlAfter":"http://localhost:4000/member/search","note":"approved by duty officer"}
+{"at":"2026-09-18T13:31:26.185Z","type":"human.approved_step","interventionId":"iv_5e1947","step":"s1"}
+{"at":"2026-09-18T13:31:26.186Z","type":"step.start","id":"s1","intent":"Enter member number {memberId}","action":"fill"}
+{"at":"2026-09-18T13:31:26.355Z","type":"step.ok","id":"s1"}
+{"at":"2026-09-18T13:31:26.356Z","type":"step.start","id":"s2","intent":"Submit member number search","action":"click"}
+{"at":"2026-09-18T13:31:26.530Z","type":"replay.blocked","step":"s2","reason":"unapproved_mutation:click","interventionId":"iv_90496a","leaseToken":4}
+{"at":"2026-09-18T13:31:26.530Z","type":"control.handoff","interventionId":"iv_90496a","step":"s2","reason":"unapproved_mutation:click","token":4}
+{"at":"2026-09-18T13:31:49.291Z","type":"control.handback","interventionId":"iv_90496a","token":5,"urlBefore":"http://localhost:4000/member/search","urlAfter":"http://localhost:4000/member/inquire","note":"approved by duty officer"}
+{"at":"2026-09-18T13:31:49.292Z","type":"human.approved_step","interventionId":"iv_90496a","step":"s2"}
+{"at":"2026-09-18T13:31:49.292Z","type":"step.start","id":"s2","intent":"Submit member number search","action":"click"}
+{"at":"2026-09-18T13:31:49.632Z","type":"replay.result","result":{"status":"business_outcome","code":"MEMBER_NOT_FOUND","message":"No member exists with that number.","evidence":"store\\runs\\rep_51bad52a"}}

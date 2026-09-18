@@ -1,0 +1,5 @@
+{"at":"2026-09-18T13:42:07.409Z","type":"replay.start","ref":"quest-core/member.savings_balance@1.0.0","tenant":"firstvalley-cu","params":{"memberId":"sha256:24aa08171261"},"runId":"rep_dd503f4c"}
+{"at":"2026-09-18T13:42:07.802Z","type":"step.start","id":"s1","intent":"Enter member number {memberId}","action":"fill"}
+{"at":"2026-09-18T13:42:07.907Z","type":"step.ok","id":"s1"}
+{"at":"2026-09-18T13:42:07.908Z","type":"step.start","id":"s2","intent":"Submit member number search","action":"click"}
+{"at":"2026-09-18T13:42:08.008Z","type":"replay.result","result":{"status":"business_outcome","code":"ACCOUNT_RESTRICTED","message":"This member requires elevated entitlements.","evidence":"store\\runs\\rep_dd503f4c"}}

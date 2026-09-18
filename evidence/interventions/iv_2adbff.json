@@ -1,0 +1,13 @@
+{
+  "runId": "rep_5ecd18a5",
+  "capability": "quest-core/member.savings_balance@1.0.0",
+  "step": "s1",
+  "reason": "unrecognised_state_or_missing_control",
+  "evidenceDir": "store\\runs\\rep_5ecd18a5",
+  "redactedParams": {
+    "memberId": "sha256:728a187ed87b"
+  },
+  "id": "iv_2adbff",
+  "state": "open",
+  "raisedAt": "2026-09-18T13:42:30.551Z"
+}
