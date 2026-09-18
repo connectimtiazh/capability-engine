@@ -11,7 +11,8 @@
     "operator": "tsx src/cli/operator.ts",
     "catalog": "tsx src/cli/catalog.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "express": "^4.19.2",
