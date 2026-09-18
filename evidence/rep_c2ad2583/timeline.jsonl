@@ -1,0 +1,18 @@
+{"at":"2026-09-18T16:37:01.387Z","type":"replay.start","ref":"quest-core/member.savings_balance@1.0.0","tenant":"firstvalley-cu","params":{"memberId":"sha256:728a187ed87b"},"runId":"rep_c2ad2583"}
+{"at":"2026-09-18T16:37:01.660Z","type":"step.start","id":"s1","intent":"Enter member number {memberId}","action":"fill"}
+{"at":"2026-09-18T16:37:01.827Z","type":"replay.blocked","step":"s1","reason":"unapproved_mutation:fill","interventionId":"iv_cbd4e9","leaseToken":2}
+{"at":"2026-09-18T16:37:01.828Z","type":"control.handoff","interventionId":"iv_cbd4e9","step":"s1","reason":"unapproved_mutation:fill","token":2}
+{"at":"2026-09-18T16:37:02.342Z","type":"control.handback","interventionId":"iv_cbd4e9","token":3,"urlBefore":"http://localhost:4000/member/search","urlAfter":"http://localhost:4000/member/search","note":"approved by duty officer"}
+{"at":"2026-09-18T16:37:02.342Z","type":"human.approved_step","interventionId":"iv_cbd4e9","step":"s1"}
+{"at":"2026-09-18T16:37:02.343Z","type":"step.start","id":"s1","intent":"Enter member number {memberId}","action":"fill"}
+{"at":"2026-09-18T16:37:02.372Z","type":"step.ok","id":"s1"}
+{"at":"2026-09-18T16:37:02.372Z","type":"step.start","id":"s2","intent":"Submit member number search","action":"click"}
+{"at":"2026-09-18T16:37:02.473Z","type":"replay.blocked","step":"s2","reason":"unapproved_mutation:click","interventionId":"iv_517480","leaseToken":4}
+{"at":"2026-09-18T16:37:02.473Z","type":"control.handoff","interventionId":"iv_517480","step":"s2","reason":"unapproved_mutation:click","token":4}
+{"at":"2026-09-18T16:37:02.989Z","type":"control.handback","interventionId":"iv_517480","token":5,"urlBefore":"http://localhost:4000/member/search","urlAfter":"http://localhost:4000/nav","note":"checking something else first"}
+{"at":"2026-09-18T16:37:02.990Z","type":"human.approved_step","interventionId":"iv_517480","step":"s2"}
+{"at":"2026-09-18T16:37:02.991Z","type":"step.start","id":"s2","intent":"Submit member number search","action":"click"}
+{"at":"2026-09-18T16:37:03.059Z","type":"replay.blocked","step":"s2","reason":"page_moved_during_handoff","interventionId":"iv_5dcb67","leaseToken":6}
+{"at":"2026-09-18T16:37:03.060Z","type":"control.handoff","interventionId":"iv_5dcb67","step":"s2","reason":"page_moved_during_handoff","token":6}
+{"at":"2026-09-18T16:37:08.210Z","type":"control.timeout","interventionId":"iv_5dcb67"}
+{"at":"2026-09-18T16:37:08.211Z","type":"replay.result","result":{"status":"blocked","interventionId":"iv_5dcb67","reason":"page_moved_during_handoff; no operator resolved it within 5000ms","evidence":"store\\runs\\rep_c2ad2583"}}

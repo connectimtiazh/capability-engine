@@ -32,6 +32,8 @@ export type Resolution =
  *  (the brief permits mocking it); the control-transfer model is not. */
 export interface OperatorHandle {
   click(name: string): Promise<void>
+  fill(name: string, value: string): Promise<void>
+  navigate(url: string): Promise<void>
   url(): string
 }
 

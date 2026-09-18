@@ -1,7 +1,14 @@
 import type { RecoveryRung } from '../capability/schema.js'
 import type { WebSurface } from '../surface/web.js'
 
-export type RecoveryResult = 'recovered' | 'not-applicable'
+/** `rung` names which onError entry actually fired, so the caller can log the truth
+ *  instead of a blanket "recovered". The bare `timeout` rung does not check anything
+ *  and does not fix anything — it only waits — so it must never be reported the same
+ *  way as `dialog-present` or `session-expired` actually clearing an obstruction. */
+export type RecoveryResult =
+  | { kind: 'recovered'; rung: 'dialog-present' | 'session-expired' }
+  | { kind: 'waited'; rung: 'timeout' }
+  | { kind: 'not-applicable' }
 
 /** The three piles, sorted at authoring time rather than at run time.
  *
@@ -12,9 +19,9 @@ export async function applyRecovery(
   rungs: RecoveryRung[],
   ctx: { entryPoint: string },
 ): Promise<RecoveryResult> {
-  // Ruling F3: the generic `timeout` rung returns `recovered` unconditionally (it
-  // does not check anything, it just waits), so it must never be tried before a
-  // specific detector that can actually tell whether its recovery applies.
+  // Ruling F3: the generic `timeout` rung waits unconditionally (it does not check
+  // anything), so it must never be tried before a specific detector that can
+  // actually tell whether its recovery applies.
   const ordered = [...rungs.filter((r) => r.when !== 'timeout'), ...rungs.filter((r) => r.when === 'timeout')]
   for (const rung of ordered) {
     if (rung.when === 'dialog-present') {
@@ -23,7 +30,7 @@ export async function applyRecovery(
       const btn = await surface.resolve({ role: 'button', name: 'Acknowledge', framePath: [], fallbacks: [] })
       if (btn.kind === 'one') {
         await surface.act('dismiss', btn.node)
-        return 'recovered'
+        return { kind: 'recovered', rung: 'dialog-present' }
       }
     }
 
@@ -39,13 +46,19 @@ export async function applyRecovery(
         const u = new URL(ctx.entryPoint)
         await surface.open(u.origin + u.pathname)
       }
-      return 'recovered'
+      return { kind: 'recovered', rung: 'session-expired' }
     }
 
     if (rung.when === 'timeout') {
       await new Promise((r) => setTimeout(r, rung.backoffMs))
-      return 'recovered'
+      // Nothing was detected and nothing was fixed — this rung only waited. It is
+      // reported distinctly from `recovered` so the timeline never claims a recovery
+      // that did not happen. evidence/rep_5ecd18a5 shows the old bug (a false
+      // `step.recovered` for this exact rung, on a block that no recovery could
+      // clear); evidence/rep_d78bee66 is the same demo re-run under this fix,
+      // logging `step.waited` instead.
+      return { kind: 'waited', rung: 'timeout' }
     }
   }
-  return 'not-applicable'
+  return { kind: 'not-applicable' }
 }

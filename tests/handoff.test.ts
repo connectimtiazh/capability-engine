@@ -175,4 +175,53 @@ describe('human handoff', () => {
     surface.setContext({ leaseHeld: true })
     await expect(surface.operatorHandle().click('Inquire')).rejects.toBeInstanceOf(PolicyError)
   })
+
+  // C1 regression: evidence/rep_51bad52a shows a live run where, after the s2
+  // (click Inquire) handback, the engine re-entered the step, ran outcome
+  // detection at the top of the loop, and reported MEMBER_NOT_FOUND straight off
+  // the page the human's own action had left on screen — never clicking Inquire
+  // itself. This reproduces that exact shape live: the operator is handed the
+  // step, drives the browser somewhere this step's own target cannot be found,
+  // and hands back. The fix must not read an outcome off that page; it must
+  // re-resolve its own target first, find nothing, and block honestly instead.
+  it('does not read a business outcome off a page a human moved during a handback (C1)', async () => {
+    const store = new FileStore(dir)
+    const c = await store.loadCapability(REF)
+    await store.saveCapability({ ...c, approval: { ...c.approval, state: 'draft' } })
+
+    const interventions = new InterventionStore(dir)
+
+    const r = await replay({
+      ref: REF, tenant: 'firstvalley-cu', params: { memberId: '40021' }, storeRoot: dir,
+      headless: true, policyOverride: policy,
+      waitForHuman: true, humanTimeoutMs: 3000,
+      onIntervention: async (iv, operator) => {
+        if (iv.reason === 'unapproved_mutation:fill') {
+          // Let s1 proceed normally: no navigation, nothing to detect wrongly yet.
+          await interventions.resolve(iv.id, 'approved by duty officer')
+          return
+        }
+        if (iv.reason === 'unapproved_mutation:click') {
+          // The human takes the wheel for s2 and drives off to a page that has no
+          // "Inquire" button at all — the nav frame's own page — rather than doing
+          // the click themselves. This is the drift the old code trusted blindly.
+          await operator.navigate(base + '/nav')
+          await interventions.resolve(iv.id, 'checking something else first')
+          return
+        }
+        // The retried s2 intervention comes back as `page_moved_during_handoff`.
+        // Nobody resolves it: the correct ending here is an honest `blocked`, not
+        // a guess, so onIntervention deliberately does nothing for this one.
+      },
+    })
+
+    expect(r.status).toBe('blocked')
+    if (r.status === 'blocked') expect(r.reason).toMatch(/page_moved_during_handoff/)
+
+    const timeline = await readFile(join(r.evidence, 'timeline.jsonl'), 'utf8')
+    // The bug this closes: outcome detection must never fire between a handback
+    // and this run re-resolving its own step's target on the live page.
+    expect(timeline).not.toContain('business_outcome')
+    expect(timeline).toContain('page_moved_during_handoff')
+  }, 30_000)
 })

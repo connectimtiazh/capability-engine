@@ -91,10 +91,13 @@ screen stops the run instead. Fourth, `approval` plus `replayStats` (`attempts`,
 recorded behaviour earns, and only a production history can earn it — a freshly discovered
 capability starts in `draft` and cannot mutate anything until a human calls `npm run approve`.
 
-The model authors detectors, extraction anchors, and step intents once, at compile time
-(`src/compile/compile.ts`). None of them is evaluated by a model at run time; `checkpointHolds`,
-`resolveDescriptor`, and `detectBusinessOutcome` are all plain pattern matches over the current DOM
-snapshot.
+The model authors the step intents and the extraction anchor, once, during discovery. Business-
+outcome detectors are not among them: `KNOWN_OUTCOMES` in `src/compile/compile.ts` is a fixed,
+vendor-level list (`MEMBER_NOT_FOUND`, `ACCOUNT_RESTRICTED`) baked in at compile time, and every
+discovered capability for this vendor gets the same two detectors regardless of what that
+particular discovery trace actually saw. None of the three are evaluated by a model at run time;
+`checkpointHolds`, `resolveDescriptor`, and `detectBusinessOutcome` are all plain pattern matches
+over the current DOM snapshot.
 
 ## 3. Determinism & error handling
 
@@ -107,9 +110,14 @@ capability needs to be re-recorded."
 
 The error taxonomy is declared per step, in `onError`: a known interstitial (`dialog-present`,
 matched by text and dismissed), a session expiry (`session-expired`, re-authenticated by following
-the screen's own way back in), and a transient timeout (bounded retries with backoff). These are
-tried in a fixed order — the generic timeout rung last, since it succeeds unconditionally and would
-otherwise mask a more specific recovery (`src/replay/recovery.ts`). A declared business outcome is
+the screen's own way back in), and a transient timeout (a bounded wait, not a fix). These are tried
+in a fixed order — the generic timeout rung last, since it always runs and would otherwise mask a
+more specific recovery from ever being tried (`src/replay/recovery.ts`). The timeline is honest about
+which of these actually fired: `dialog-present` and `session-expired` log `step.recovered`, but the
+bare `timeout` rung — which detects nothing and fixes nothing, it only waits — logs `step.waited`.
+`evidence/rep_5ecd18a5` is a committed run showing the old bug (a false `step.recovered` for a
+timeout wait that recovered nothing); `evidence/rep_d78bee66` is the same demo re-run under the fix.
+A declared business outcome is
 an answer, checked before every step and again after a failed checkpoint, so "no record found"
 does not have to wait for the rest of the steps to fail first. Anything else — a resolver finding
 zero or more than one match, an unrecognised screen — stops the run rather than guessing. This is
@@ -129,21 +137,34 @@ supplied parameter or a token from a declared extraction, and if every line on t
 is volatile it refuses to compile a checkpoint at all rather than emit one that could only ever
 replay correctly for the single record it was recorded against.
 
-That structure-only guarantee has a real edge, found by running the live handoff demo. The
-`field-has-value` checkpoint originally asserted only that a control with the given role and name
-existed on screen — a check that could never fail, since the field is on screen whether or not
-anything was typed into it. During a `--wait` run, a real-clock pause between a blocked step and a
-human's resolution left the member-number input empty by the time the next step ran; the
-checkpoint reported "present" regardless, the next step submitted the empty field, and the run
-returned `MEMBER_NOT_FOUND` for a member who is real and has a balance — a confident wrong answer
-delivered through the one channel the system exists to make trustworthy. The checkpoint now reads
-the control's live value (`src/surface/web.ts`, `checkpointHolds`), so the same condition surfaces
-as `checkpoint_failed` at the step, with the expected and observed values in the result, rather
-than continuing. A stronger variant would compare the field's live value against the parameter
-that was supposed to be in it, rather than only checking non-emptiness; that is not built, and the
-gap it leaves is real — a field cleared and then re-filled with something else, or cleared after
-its own checkpoint passed but before the next step reads it, would not be caught by a non-emptiness
-check alone. This was reproduced again, independently, while preparing this report.
+Running the live handoff demo found a real bug in the replay loop itself, not in checkpoint
+derivation. `evidence/rep_51bad52a/timeline.jsonl` shows it exactly: after `control.handback` for
+the s2 (click "Inquire") intervention — recorded as `urlBefore=/member/search`,
+`urlAfter=/member/inquire` — the timeline goes straight from `step.start s2` to
+`replay.result business_outcome MEMBER_NOT_FOUND`. There is no `step.ok` and no action in between.
+The old loop re-entered the step and called `detectBusinessOutcome` at the very top of the
+iteration, before resolving the step's own target and before acting — so it read "No record found"
+off whatever page the human had navigated to during the pause, for a member (40021) who is real and
+has a balance. It never clicked. The fix (`src/replay/execute.ts`) tracks that the previous
+iteration ended in a handback (`justResumed`); while that flag is set, outcome detection is skipped
+and the step's own target must resolve on the live page before the run trusts anything on it again.
+If it resolves, replay proceeds normally. If it does not, the run blocks with
+`page_moved_during_handoff` instead of guessing — see §5 for the re-run of this exact demo under
+the fix.
+
+Preparing that same demo also turned up a second, unrelated defect: the `field-has-value`
+checkpoint on step s1 originally asserted only that a control with the given role and name existed
+on screen — a check that could never fail, since the field is on screen whether or not anything was
+ever typed into it. It was not the cause of the `MEMBER_NOT_FOUND` above (that was the loop bug
+described above); it is a separate gap in checkpoint derivation, found in the course of the same
+demo. The checkpoint now reads the control's live value (`src/surface/web.ts`, `checkpointHolds`)
+and reports `checkpoint_failed` if it is empty, rather than reporting "present" regardless. No
+committed run currently exercises this path — `grep -r checkpoint_failed evidence/` finds nothing —
+so this is described as a defect that was found and fixed, not as a demonstrated result. A stronger
+variant would compare the field's live value against the parameter that was supposed to be in it,
+rather than only checking non-emptiness; that is not built, and the gap it leaves is real — a field
+cleared and then re-filled with something else, or cleared after its own checkpoint passed but
+before the next step reads it, would not be caught by a non-emptiness check alone.
 
 ## 4. Heterogeneity & multi-tenant
 
@@ -197,21 +218,29 @@ resolution the engine re-acquires the lease with a fresh token and retries the p
 top, not from wherever the human left off.
 
 That retry is the verification. The engine does not trust that the human did what was asked; it
-re-observes the page and re-resolves the target, and if the human left the page in a state the
-target cannot be found on, the step blocks again with the same reason. The operator console here is
-a CLI (`npm run operator -- list | show | resume`) by choice — the assignment permits mocking the
+re-observes the page and re-resolves the target before doing anything else — including before
+reading a business outcome off the screen, which was not true until the fix in §3 closed it. If the
+human left the page in a state the target cannot be found on, the step blocks again, now with
+`page_moved_during_handoff` rather than silently trusting whatever is on screen. The operator
+console here is a CLI (`npm run operator -- list | show | resume`) by choice — the assignment permits mocking the
 console — but the handoff mechanics behind it (lease, fencing token, intervention record, retry
 from a live re-observation) are real, not simulated, and are what would sit behind a graphical
 console if one were built.
 
-The live `--wait` demo exercised this mechanism honestly and did not end in success. Both
-interventions were raised correctly, resolved with a one-shot approval each, and control was handed
-back correctly both times; the run instead hit the environment-dependent condition described in
-§3 — a real-clock pause across a headful window emptied the filled input — and returned
-`MEMBER_NOT_FOUND`. The mechanics worked. The run's answer was wrong until the checkpoint fix
-above, and even after the fix the same class of gap can still surface as a `checkpoint_failed`
-rather than a silent success, which is the correct failure mode for a system built to prefer an
-honest stop over a confident guess.
+The live handoff demo was re-run against the fixed code, reproducing the same shape of interaction
+as `evidence/rep_51bad52a`: both interventions raised correctly, s1 approved and completed cleanly,
+and then, for s2, the human drove the live session to a page with no "Inquire" control on it at all
+before handing back — a stand-in for the same drift `rep_51bad52a`'s `control.handback` shows
+(`urlBefore=/member/search`, `urlAfter=/member/inquire`). Where the old
+code went straight to `MEMBER_NOT_FOUND` without ever re-clicking, the fixed run
+(`evidence/rep_c2ad2583/timeline.jsonl`) re-resolves s2's own target on the page the human left,
+finds nothing, raises a third intervention with reason `page_moved_during_handoff`, and — nobody
+resolving it — ends `status: "blocked"` with that reason. This is the correct ending: the mechanics
+(lease, fencing token, retry-from-a-live-re-observation) all worked, and the run said "I don't know
+where I am" instead of guessing. `evidence/rep_51bad52a` is kept as the committed record of the bug;
+`evidence/rep_c2ad2583` is the same demo re-run under the fix. The separate `field-has-value` defect
+described in §3 is fixed in the same code but is not itself demonstrated by a committed run — see
+§3 for why.
 
 ## 6. Safety
 
@@ -265,7 +294,12 @@ same descriptor vocabulary as the web one, but one implementation was enough to 
 holds. Multi-tenant plumbing beyond `Binding` and `driftLog` — isolation, a control plane, queues
 between tenants. Multi-run stability scoring — `replayStats` on the artifact is the hook a scoring
 system would read, but the harness that would run a capability N times and score its stability is
-not built. Auth flows — the target application stubs login rather than requiring it.
+not built. Auth flows — the target application stubs login rather than requiring it. Per-application
+business-outcome detectors — §2 is explicit that `KNOWN_OUTCOMES` is a fixed, vendor-level list
+authored once in the compiler, not derived from any individual discovery trace; having the model
+(or a human, reviewing the trace) propose additional detectors specific to what a given discovery
+run actually saw is not built, and every capability discovered against this vendor today gets the
+same two outcomes whether or not its own trace ever exercised them.
 
 One cut is refused on principle rather than for time: an LLM fallback for when replay fails. It
 would reintroduce exactly the nondeterminism this system exists to remove — the entire argument in

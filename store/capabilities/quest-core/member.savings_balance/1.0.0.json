@@ -195,7 +195,7 @@
     "state": "approved",
     "approvedBy": "operator:local",
     "replayStats": {
-      "attempts": 14,
+      "attempts": 15,
       "successes": 12,
       "lastFailure": null
     }

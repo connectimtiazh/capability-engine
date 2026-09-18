@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { FileStore } from '../capability/store.js'
 import type { Capability, ReplayResult, Step } from '../capability/schema.js'
-import { loadPolicy, type PolicyConfig } from '../policy/allowlist.js'
+import { loadPolicy, classifyAction, type PolicyConfig } from '../policy/allowlist.js'
 import { redactParams } from '../policy/redact.js'
 import { WebSurface, PolicyError } from '../surface/web.js'
 import type { OperatorHandle } from '../surface/types.js'
@@ -122,6 +122,14 @@ export async function replay(opts: ReplayOptions): Promise<ReplayResult> {
     let interventionsUsed = 0
     let approvedStep: string | null = null   // one-shot human approval, see below
 
+    // C1: the screen is not this run's own product the instant control comes back
+    // from a human. Set wherever `block()` resolves and the loop re-enters the same
+    // step index; cleared once the step's own target re-resolves on the live page.
+    // While it is true, a business-outcome read off the current screen would be
+    // attributing to this run's actions a page the human may have navigated on
+    // their own — see the fix note at the top of the loop below.
+    let justResumed = false
+
     const block = async (step: string, reason: string): Promise<ReplayResult | 'resumed'> => {
       // F31: Guard evidence capture so failures don't convert blocked→failed.
       try {
@@ -152,13 +160,17 @@ export async function replay(opts: ReplayOptions): Promise<ReplayResult> {
       // return, and fail() records its own, so every terminal path records exactly
       // once and no path records twice.
       if (overBudget) {
+        const r: ReplayResult = { status: 'blocked', interventionId: iv.id, reason: 'intervention_budget_exhausted', evidence: rec.dir }
+        await note('replay.result', { result: r })
         await store.recordReplayAttempt(opts.ref, false, null)
-        return { status: 'blocked', interventionId: iv.id, reason: 'intervention_budget_exhausted', evidence: rec.dir }
+        return r
       }
 
       if (!opts.waitForHuman) {
+        const r: ReplayResult = { status: 'blocked', interventionId: iv.id, reason, evidence: rec.dir }
+        await note('replay.result', { result: r })
         await store.recordReplayAttempt(opts.ref, false, null)
-        return { status: 'blocked', interventionId: iv.id, reason, evidence: rec.dir }
+        return r
       }
 
       if (opts.onIntervention) {
@@ -176,12 +188,14 @@ export async function replay(opts: ReplayOptions): Promise<ReplayResult> {
 
       if (!resolved) {
         await note('control.timeout', { interventionId: iv.id })
-        await store.recordReplayAttempt(opts.ref, false, null)
-        return {
+        const r: ReplayResult = {
           status: 'blocked', interventionId: iv.id,
           reason: `${reason}; no operator resolved it within ${opts.humanTimeoutMs ?? 600_000}ms`,
           evidence: rec.dir,
         }
+        await note('replay.result', { result: r })
+        await store.recordReplayAttempt(opts.ref, false, null)
+        return r
       }
 
       // Take the wheel back with a fresh token, and record what moved while we were out.
@@ -230,15 +244,25 @@ export async function replay(opts: ReplayOptions): Promise<ReplayResult> {
         // A declared outcome can appear at any point, so it is checked before each
         // step rather than only at the end. "No record found" is an answer, and an
         // answer should not have to wait for the remaining steps to fail.
-        const outcome = await detectBusinessOutcome(surface, capability.businessOutcomes)
-        if (outcome) {
-          const r: ReplayResult = {
-            status: 'business_outcome', code: outcome.code,
-            message: outcome.message ?? outcome.code, evidence: rec.dir,
+        //
+        // C1 fix: NOT when the previous iteration just came back from a handback.
+        // The screen is not this run's own product until the engine has re-resolved
+        // its own step's target on it — a human holding the lease can navigate
+        // anywhere, and reading an outcome off whatever they left on screen before
+        // this run has acted again is exactly the bug this guard closes (see
+        // evidence/rep_51bad52a: control.handback lands on /member/inquire, and the
+        // old code read "No record found" there without ever re-clicking Inquire).
+        if (!justResumed) {
+          const outcome = await detectBusinessOutcome(surface, capability.businessOutcomes)
+          if (outcome) {
+            const r: ReplayResult = {
+              status: 'business_outcome', code: outcome.code,
+              message: outcome.message ?? outcome.code, evidence: rec.dir,
+            }
+            await rec.event('replay.result', { result: r })
+            await store.recordReplayAttempt(opts.ref, true, null)
+            return r
           }
-          await rec.event('replay.result', { result: r })
-          await store.recordReplayAttempt(opts.ref, true, null)
-          return r
         }
 
         if (step.action === 'read') {
@@ -261,10 +285,34 @@ export async function replay(opts: ReplayOptions): Promise<ReplayResult> {
 
         let resolution = await surface.resolve(step.target!)
 
+        // C1 fix: this is the re-establishment the guard above is waiting for. A
+        // handback does not make the screen trustworthy again by itself — only
+        // finding this step's own target on it does. If it resolves, the run is back
+        // on its own ground and outcomes are trustworthy again from here on. If it
+        // does not, a human moved the page somewhere this step cannot pick up from,
+        // and that is reported honestly instead of falling into any of the ordinary
+        // none/ambiguous handling below (recovery, drift, etc. all assume the run
+        // itself produced the current screen, which is exactly what is in doubt here).
+        if (justResumed) {
+          if (resolution.kind === 'one') {
+            justResumed = false
+          } else {
+            const outcome = await block(step.id, 'page_moved_during_handoff')
+            if (outcome !== 'resumed') return outcome
+            justResumed = true
+            i--
+            continue
+          }
+        }
+
         if (resolution.kind === 'none') {
           const recovered = await applyRecovery(surface, step.onError, { entryPoint })
-          if (recovered === 'recovered') {
-            await rec.event('step.recovered', { id: step.id })
+          if (recovered.kind !== 'not-applicable') {
+            // C4: only `dialog-present`/`session-expired` actually cleared something;
+            // the bare `timeout` rung just waited, so it is logged as a wait, not a
+            // recovery (see evidence/rep_5ecd18a5, where this line previously claimed
+            // a recovery for a rung that fixed nothing).
+            await rec.event(recovered.kind === 'recovered' ? 'step.recovered' : 'step.waited', { id: step.id, rung: recovered.rung })
             const again = await detectBusinessOutcome(surface, capability.businessOutcomes)
             if (again) {
               const r: ReplayResult = { status: 'business_outcome', code: again.code, message: again.message ?? again.code, evidence: rec.dir }
@@ -278,9 +326,13 @@ export async function replay(opts: ReplayOptions): Promise<ReplayResult> {
         if (resolution.kind === 'ambiguous') {
           // Two candidates is never an action. On a read it is a hard failure; on a
           // mutate a person choosing between them is a legitimate intervention.
-          if (capability.risk.class === 'mutate') {
+          // C3: keyed on this step's own action, not the capability-wide risk class —
+          // a read step inside an otherwise-mutating capability must still fail hard
+          // on ambiguity, matching REPORT §5.
+          if (classifyAction(step.action) === 'mutate') {
             const outcome = await block(step.id, `resolver_ambiguous:${resolution.count}`)
             if (outcome !== 'resumed') return outcome
+            justResumed = true
             i--
             continue
           }
@@ -295,6 +347,7 @@ export async function replay(opts: ReplayOptions): Promise<ReplayResult> {
           // stops being automation and starts being a liability.
           const outcome = await block(step.id, 'unrecognised_state_or_missing_control')
           if (outcome !== 'resumed') return outcome
+          justResumed = true
           i--
           continue
         }
@@ -309,6 +362,7 @@ export async function replay(opts: ReplayOptions): Promise<ReplayResult> {
         if (!(await leases.holds(sessionId, 'agent', lease.token))) {
           const outcome = await block(step.id, 'lease_lost')
           if (outcome !== 'resumed') return outcome
+          justResumed = true
           i--
           continue
         }
@@ -318,8 +372,12 @@ export async function replay(opts: ReplayOptions): Promise<ReplayResult> {
           await surface.act(step.action, resolution.node, valueFor(step, opts.params as Record<string, unknown>))
         } catch (e) {
           if (e instanceof PolicyError && e.verdict === 'HOLD') {
+            // This is the C1 site: an unapproved mutation (e.g. the click on a still-
+            // draft capability) is held here, and the demo in evidence/rep_51bad52a
+            // shows exactly this rung's handback landing on a page the human moved.
             const outcome = await block(step.id, e.reason)
             if (outcome !== 'resumed') return outcome
+            justResumed = true
             i--
             continue
           }
@@ -344,7 +402,10 @@ export async function replay(opts: ReplayOptions): Promise<ReplayResult> {
             return r
           }
           const recovered = await applyRecovery(surface, step.onError, { entryPoint })
-          if (recovered === 'recovered') cp = await surface.checkpointHolds(step.checkpoint)
+          if (recovered.kind !== 'not-applicable') {
+            await rec.event(recovered.kind === 'recovered' ? 'step.recovered' : 'step.waited', { id: step.id, rung: recovered.rung })
+            cp = await surface.checkpointHolds(step.checkpoint)
+          }
         }
 
         if (!cp.ok) {
@@ -365,15 +426,25 @@ export async function replay(opts: ReplayOptions): Promise<ReplayResult> {
       return r
     } catch (e) {
       if (e instanceof PolicyError && e.verdict === 'HOLD') {
-        // A HOLD this early (before any step index exists to retry) is not reachable
-        // today — navigate/read/waitFor never classify as mutate — but the type still
-        // has to be handled honestly rather than assumed away.
+        // C4: this branch IS reachable, contrary to what this comment used to claim.
+        // `applyRecovery`'s `dialog-present` rung calls `surface.act('dismiss', ...)`
+        // outside the per-step try/catch above; `dismiss` classifies as `mutate`, so a
+        // still-`draft` capability hitting the MOTD interstitial raises a HOLD here,
+        // with no step index in scope to retry from.
         const outcome = await block('(surface)', e.reason)
         return outcome === 'resumed'
           ? await fail('(run)', 'the recorded flow to complete',
               'a human cleared the hold, but there is no step position to resume from here; re-run the capability',
               'surface_error')
           : outcome
+      }
+      // C2: a DENY is a refusal, not a browser malfunction — an off-allowlist
+      // binding, an origin/path outside the policy, or acting without the lease all
+      // raise PolicyError with verdict DENY from `open`, `resolve`, or
+      // `checkpointHolds` (via `observe`), and land here uncaught by the per-step
+      // try/catch, which only wraps `surface.act`.
+      if (e instanceof PolicyError && e.verdict === 'DENY') {
+        return await fail('(run)', 'an action permitted by policy', e.reason, 'policy_denied')
       }
       return await fail('(run)', 'the recorded flow to complete', String(e), 'surface_error')
     } finally {

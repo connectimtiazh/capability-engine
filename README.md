@@ -5,8 +5,11 @@ during discovery, and produces a capability artifact — a file. Replaying that 
 live session never calls a model again; it walks the recorded steps deterministically, checking a
 declared checkpoint after each one, and stops the moment it sees something it does not recognise
 rather than improvise. This repo demonstrates that split against a deliberately hostile local
-target application (a frameset, nested layout tables, `<font>` tags, ASP-style control names, no
-`id` or `data-testid` anywhere, and injectable interstitials).
+target application (nested layout tables, `<font>` tags, ASP-style control names, no `id` or
+`data-testid` anywhere, and injectable interstitials). The target app also serves a frameset at `/`,
+and frame traversal is implemented (`framePath` on every descriptor and DOM node, `src/surface/
+web.ts`) — but every demo and test in this repo enters directly at `/member/search`, so that code
+path is exercised by nothing here and should be read as implemented, not as demonstrated.
 
 ## Setup
 
@@ -54,8 +57,13 @@ evidence      store\runs\disc_349ee480
 ```
 
 **2. Handoff demo.** `--wait` forces a visible (headful) browser regardless of `HEADLESS`, because
-a person is meant to see and drive the parked window. Against a freshly discovered `draft`
-capability, each mutating step (fill, then click) is held for approval:
+a person is meant to see and drive the parked window. This demo requires a `draft` capability — each
+mutating step (fill, then click) is held for approval only while `approval.state` is `draft`. The
+capability committed in this repo is already `approved` (it carries real replay history), so
+reproducing this demo requires either running **1. Discover** again first (which writes a fresh
+`draft` artifact) or editing `store/capabilities/quest-core/member.savings_balance/1.0.0.json` and
+setting `"approval": { "state": "draft", ... }` back by hand before running the command below, then
+restoring it (or re-running **3. Approve**) afterwards:
 
 ```
 npm run replay -- --capability quest-core/member.savings_balance@1.0.0 --params '{"memberId":"40021"}' --wait
@@ -68,12 +76,12 @@ npm run operator -- list
 npm run operator -- resume <interventionId> --note "what you did"
 ```
 
-The engine re-acquires the lease, re-resolves the parked step against the live page — it does not
-trust that the human did what was asked — and continues. This repeats once per mutating step. Note
-that the handoff mechanics (lease, fencing token, retry-as-verification) can be exercised this way,
-but a real-clock pause across a headful window is an environment-dependent condition: see
-`REPORT.md` §3 and §5 for what was found by running this exact demo and how the system now
-surfaces it rather than returning a silent wrong answer.
+The engine re-acquires the lease and re-resolves the parked step against the live page before doing
+anything else — it does not trust that the human did what was asked — and continues. This repeats
+once per mutating step. If the human used the pause to navigate the live browser somewhere this
+step's own target cannot be found (see `REPORT.md` §3), the step blocks again with
+`page_moved_during_handoff` instead of reporting whatever happens to be on that screen. See
+`REPORT.md` §3 and §5 for the bug this closes and what running this exact demo produced.
 
 **3. Approve.** Promotes the capability so its mutating steps can run unattended.
 
@@ -121,7 +129,9 @@ HEADLESS=1 npm run replay -- --capability quest-core/member.savings_balance@1.0.
 { "status": "blocked", "interventionId": "iv_6d1abe", "reason": "unrecognised_state_or_missing_control", "evidence": "store\\runs\\rep_f0e17093" }
 ```
 
-**5. Catalog.** Lists approved capabilities as callable tool definitions and can invoke one by name:
+**5. Catalog.** Lists every saved capability — draft and approved alike — as a callable tool
+definition, with `unattended` distinguishing which ones may run without a human present, and can
+invoke one by name:
 
 ```
 npm run catalog
@@ -143,7 +153,7 @@ you are done.
 | `src/policy` | Allowlist and the three-state safety gate |
 | `src/control` | Control lease (fencing token) and the intervention queue |
 | `src/evidence` | Timeline, screenshot, and DOM snapshot recording, with redaction |
-| `src/catalog` | Renders approved capabilities as callable tool definitions |
+| `src/catalog` | Renders every saved capability (draft and approved) as a callable tool definition |
 | `src/cli` | `discover`, `replay`, `operator`, `catalog`, `approve` commands |
 | `target-app` | The deliberately hostile local application used for every demo |
 | `store/capabilities`, `store/bindings` | Committed artifacts: the real discovered capability and its tenant binding |

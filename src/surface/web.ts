@@ -210,6 +210,17 @@ export class WebSurface {
         if (n !== 1) throw new Error(`operator click "${name}" matched ${n} controls, expected exactly 1`)
         await loc.click()
       },
+      fill: async (name: string, value: string): Promise<void> => {
+        if (this.leaseHeld) throw new PolicyError('DENY', 'operator_acted_while_agent_holds_lease')
+        const loc = this.page.getByRole('textbox', { name })
+        const n = await loc.count()
+        if (n !== 1) throw new Error(`operator fill "${name}" matched ${n} controls, expected exactly 1`)
+        await loc.fill(value)
+      },
+      navigate: async (url: string): Promise<void> => {
+        if (this.leaseHeld) throw new PolicyError('DENY', 'operator_acted_while_agent_holds_lease')
+        await this.page.goto(url, { waitUntil: 'domcontentloaded' })
+      },
       url: () => this.page.url(),
     }
   }
