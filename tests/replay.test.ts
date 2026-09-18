@@ -139,4 +139,17 @@ describe('replay', () => {
     const r = await run({ memberId: '40021' })
     expect(r.status).toBe('blocked')
   }, 60_000)
+
+  it('returns a structured failure for an unknown capability instead of throwing', async () => {
+    const r = await replay({ ref: 'quest-core/nope@1.0.0', tenant: 'firstvalley-cu', params: {}, storeRoot: dir, headless: true, policyOverride: policy })
+    expect(r.status).toBe('failed')
+    if (r.status === 'failed') expect(r.class).toBe('input_invalid')
+  }, 60_000)
+
+  it('counts a blocked run as an attempt without a success', async () => {
+    await run({ memberId: '40021' }, base + '/member/search?inject=unknown-dialog')
+    const c = await new FileStore(dir).loadCapability(REF)
+    expect(c.approval.replayStats.attempts).toBe(1)
+    expect(c.approval.replayStats.successes).toBe(0)
+  }, 60_000)
 })
