@@ -36,6 +36,13 @@ describe('LeaseStore', () => {
     const l = await s.acquire('sess1', 'agent')
     expect(await s.holds('sess1', 'human:op-7', l.token)).toBe(false)
   })
+
+  it('refuses a handover from a caller holding a stale token', async () => {
+    const s = new LeaseStore(dir)
+    const first = await s.acquire('sess1', 'agent')
+    await s.release('sess1', 'human:op-7', first.token)
+    await expect(s.release('sess1', 'agent', first.token)).rejects.toThrow(/moved: expected token/)
+  })
 })
 
 describe('InterventionStore', () => {
@@ -71,5 +78,21 @@ describe('InterventionStore', () => {
       redactedParams: { memberId: 'sha256:abc123def456' },
     })
     expect(JSON.stringify(await s.get(iv.id))).not.toContain('40021')
+  })
+
+  it('never exposes a torn intervention file to a concurrent reader', async () => {
+    const s = new InterventionStore(dir)
+    const iv = await s.raise({ runId: 'r', capability: 'k@1.0.0', step: 's1', reason: 'r', evidenceDir: 'd', redactedParams: {} })
+    let parseFailures = 0
+    const writer = (async () => {
+      for (let i = 0; i < 100; i++) await s.resolve(iv.id, `note ${i} ${'x'.repeat(2000)}`)
+    })()
+    const reader = (async () => {
+      for (let i = 0; i < 300; i++) {
+        try { await s.get(iv.id) } catch { parseFailures++ }
+      }
+    })()
+    await Promise.all([writer, reader])
+    expect(parseFailures).toBe(0)
   })
 })

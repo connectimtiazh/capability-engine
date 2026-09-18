@@ -1,6 +1,7 @@
-import { mkdir, readFile, writeFile, readdir } from 'node:fs/promises'
+import { mkdir, readFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { writeFileAtomic } from './atomic.js'
 
 export interface HumanAction {
   urlBefore: string
@@ -35,7 +36,7 @@ export class InterventionStore {
   async raise(i: Omit<Intervention, 'id' | 'state' | 'raisedAt'>): Promise<Intervention> {
     const iv: Intervention = { ...i, id: `iv_${randomUUID().slice(0, 6)}`, state: 'open', raisedAt: new Date().toISOString() }
     await mkdir(this.dir(), { recursive: true })
-    await writeFile(this.path(iv.id), JSON.stringify(iv, null, 2) + '\n', 'utf8')
+    await writeFileAtomic(this.path(iv.id), JSON.stringify(iv, null, 2) + '\n')
     return iv
   }
 
@@ -55,7 +56,7 @@ export class InterventionStore {
   async resolve(id: string, note: string, humanActions: HumanAction[] = []): Promise<Intervention> {
     const iv = await this.get(id)
     const next: Intervention = { ...iv, state: 'resolved', note, humanActions }
-    await writeFile(this.path(id), JSON.stringify(next, null, 2) + '\n', 'utf8')
+    await writeFileAtomic(this.path(id), JSON.stringify(next, null, 2) + '\n')
     return next
   }
 }
