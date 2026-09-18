@@ -122,4 +122,21 @@ describe('compile', () => {
     )
     expect(c.title).toBe('reconcile member {memberId} against account {accountId}')
   })
+
+  it('treats each table cell as a candidate, as real innerText joins cells with tabs', () => {
+    const tabbed = 'Member\tA. Whitfield (40021)\nShare Balance\t1284.55\nAs Of\t2026-09-17'
+    const c = compile(
+      {
+        ...trace,
+        steps: [trace.steps[0]!, { ...trace.steps[1]!, textAfter: tabbed }],
+        finalText: tabbed,
+        extracted: { savingsBalance: { value: tabbed, as: 'number', from: { role: 'table', name: '', framePath: [], fallbacks: [] } } },
+      },
+      { key: 'k', params: { memberId: '40021' } },
+    )
+    expect(c.successCondition).toMatchObject({ kind: 'text-present', text: 'Share Balance' })
+    const emitted = JSON.stringify({ s: c.steps, ok: c.successCondition })
+    expect(emitted).not.toContain('40021')
+    expect(emitted).not.toContain('1284.55')
+  })
 })

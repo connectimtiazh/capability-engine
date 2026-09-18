@@ -11,7 +11,9 @@ Reply with ONE JSON object and nothing else. Valid shapes:
  "value":"<only for fill>"}
 
 {"kind":"extract","name":"<outputFieldName>","as":"string"|"number"|"date",
- "intent":"<short human sentence>","from":{"role":"table","name":"","framePath":[...],"fallbacks":[]}}
+ "intent":"<short human sentence>",
+ "from":{"role":"table","name":"","framePath":[...],"fallbacks":[],
+         "anchor":{"kind":"table-cell","rowHeader":"<the visible label beside the value>","offset":{"col":1}}}}
 
 {"kind":"done","summary":"<what was achieved>"}
 
@@ -23,7 +25,9 @@ Rules:
 - One action per reply. Do not batch.
 - If the screen shows an error, a "no record found", or a dialog you do not recognise, and you cannot
   proceed safely, reply with "stuck" and say why. Do not guess.
-- When the goal's information is visible on screen, "extract" it, then reply "done".`
+- When the goal's information is visible on screen, "extract" it, then reply "done".
+- For "extract", anchor.rowHeader must be the exact visible LABEL next to the value — for
+  example "Share Balance" — never the value itself. Replay reads whatever sits beside that label.`
 
 export function renderObservation(o: Observation): string {
   const lines: string[] = [`URL: ${o.url}`, `TITLE: ${o.title}`]

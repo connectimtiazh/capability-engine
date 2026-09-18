@@ -21,8 +21,9 @@ const KNOWN_OUTCOMES: { code: string; text: string; message: string }[] = [
 function distinctiveLine(finalText: string, priorText: string, volatile: string[] = []): string {
   const carriesVolatile = (l: string): boolean =>
     volatile.some((v) => v.length >= 3 && l.includes(v))
-  const prior = new Set(priorText.split('\n').map((l) => l.trim()))
-  const lines = finalText.split('\n').map((l) => l.trim())
+  const units = (t: string): string[] => t.split(/[\n\t]/).map((l) => l.trim())
+  const prior = new Set(units(priorText))
+  const lines = units(finalText)
   const candidates = lines.filter(
     (l) => l.length >= 4 && l.length <= 60 && !prior.has(l) && !carriesVolatile(l),
   )

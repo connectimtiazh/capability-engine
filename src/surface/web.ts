@@ -161,13 +161,13 @@ export class WebSurface {
     return frames.map((f) => f.text).join('\n')
   }
 
-  async screenshot(path: string, mask: string[] = []): Promise<void> {
+  async screenshot(path: string, mask: string[] = [], maskText: string[] = []): Promise<void> {
     this.check('read', this.page.url())
-    await this.page.screenshot({
-      path,
-      fullPage: true,
-      ...(mask.length ? { mask: mask.map((sel) => this.page.locator(sel)) } : {}),
-    })
+    const locators = [
+      ...mask.map((sel) => this.page.locator(sel)),
+      ...maskText.map((t) => this.page.getByText(t, { exact: false })),
+    ]
+    await this.page.screenshot({ path, fullPage: true, ...(locators.length ? { mask: locators } : {}) })
   }
 
   async domSnapshot(path: string): Promise<void> {

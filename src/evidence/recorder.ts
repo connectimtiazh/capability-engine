@@ -1,4 +1,4 @@
-import { mkdir, appendFile } from 'node:fs/promises'
+import { mkdir, appendFile, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 export class Recorder {
@@ -40,15 +40,24 @@ export class Recorder {
     return join(this.dir, 'evidence', `${label}.${ext}`)
   }
 
-  async shot(surface: { screenshot(p: string): Promise<void> }, label: string): Promise<string> {
+  async shot(
+    surface: { screenshot(p: string, mask?: string[], maskText?: string[]): Promise<void> },
+    label: string,
+  ): Promise<string> {
     const p = this.evidencePath(label, 'png')
-    await surface.screenshot(p)
+    if (this.redactions.length) {
+      await surface.screenshot(p, ['input[type="text"]', 'input:not([type])'], this.redactions)
+    } else {
+      await surface.screenshot(p)
+    }
     return p
   }
 
   async dom(surface: { domSnapshot(p: string): Promise<void> }, label: string): Promise<string> {
     const p = this.evidencePath(label, 'html')
     await surface.domSnapshot(p)
+    const html = await readFile(p, 'utf8')
+    await writeFile(p, this.scrub(html), 'utf8')
     return p
   }
 }
