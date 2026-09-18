@@ -143,15 +143,21 @@ export async function replay(opts: ReplayOptions): Promise<ReplayResult> {
         evidenceDir: rec.dir, redactedParams: redacted,
       })
       await note('replay.blocked', { step, reason, interventionId: iv.id, leaseToken: lease.token })
-      // F32: Count blocked as an attempt (no success).
-      await store.recordReplayAttempt(opts.ref, false, null)
       await note('control.handoff', { interventionId: iv.id, step, reason, token: lease.token })
 
+      // F35: replayStats counts invocations, not pauses. A pause that goes on to be
+      // resumed is not a terminal outcome, so it must not record an attempt here —
+      // only the paths below that actually return `blocked` (the run's final word)
+      // may. Success and business_outcome record their own attempt at their own
+      // return, and fail() records its own, so every terminal path records exactly
+      // once and no path records twice.
       if (overBudget) {
+        await store.recordReplayAttempt(opts.ref, false, null)
         return { status: 'blocked', interventionId: iv.id, reason: 'intervention_budget_exhausted', evidence: rec.dir }
       }
 
       if (!opts.waitForHuman) {
+        await store.recordReplayAttempt(opts.ref, false, null)
         return { status: 'blocked', interventionId: iv.id, reason, evidence: rec.dir }
       }
 
@@ -170,6 +176,7 @@ export async function replay(opts: ReplayOptions): Promise<ReplayResult> {
 
       if (!resolved) {
         await note('control.timeout', { interventionId: iv.id })
+        await store.recordReplayAttempt(opts.ref, false, null)
         return {
           status: 'blocked', interventionId: iv.id,
           reason: `${reason}; no operator resolved it within ${opts.humanTimeoutMs ?? 600_000}ms`,

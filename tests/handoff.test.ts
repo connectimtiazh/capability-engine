@@ -109,6 +109,28 @@ describe('human handoff', () => {
     expect(lease?.holder).toBe('agent')
   }, 60_000)
 
+  it('records one attempt for one invocation, however many pauses it took', async () => {
+    // A run that pauses, gets help, and succeeds is one successful attempt — not
+    // three. Same setup as the first test: it blocks once, the operator clears it,
+    // and the run succeeds.
+    const interventions = new InterventionStore(dir)
+
+    const r = await replay({
+      ref: REF, tenant: 'firstvalley-cu', params: { memberId: '40021' }, storeRoot: dir,
+      headless: true, policyOverride: policy,
+      entryPointOverride: base + '/member/search?inject=unknown-dialog',
+      waitForHuman: true,
+      onIntervention: async (iv, operator) => {
+        await operator.click('Acknowledge')
+        await interventions.resolve(iv.id, 'cleared the compliance notice')
+      },
+    })
+
+    expect(r.status).toBe('success')
+    const c = await new FileStore(dir).loadCapability(REF)
+    expect(c.approval.replayStats).toMatchObject({ attempts: 1, successes: 1 })
+  }, 60_000)
+
   it('blocks with a clear reason when nobody resolves the intervention in time', async () => {
     const r = await replay({
       ref: REF, tenant: 'firstvalley-cu', params: { memberId: '40021' }, storeRoot: dir,
