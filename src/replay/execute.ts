@@ -5,9 +5,10 @@ import type { Capability, ReplayResult, Step } from '../capability/schema.js'
 import { loadPolicy, type PolicyConfig } from '../policy/allowlist.js'
 import { redactParams } from '../policy/redact.js'
 import { WebSurface, PolicyError } from '../surface/web.js'
+import type { OperatorHandle } from '../surface/types.js'
 import { Recorder } from '../evidence/recorder.js'
 import { LeaseStore } from '../control/lease.js'
-import { InterventionStore } from '../control/interventions.js'
+import { InterventionStore, type Intervention } from '../control/interventions.js'
 import { detectBusinessOutcome } from './outcomes.js'
 import { applyRecovery } from './recovery.js'
 import { extractAnchored } from './extract.js'
@@ -20,6 +21,10 @@ export interface ReplayOptions {
   headless?: boolean
   policyOverride?: PolicyConfig
   entryPointOverride?: string
+  waitForHuman?: boolean          // default false: keep today's return-and-close behaviour
+  humanTimeoutMs?: number         // default 600_000
+  maxInterventions?: number       // default 3
+  onIntervention?: (iv: Intervention, operator: OperatorHandle) => Promise<void>
 }
 
 function validatorFor(c: Capability): z.ZodTypeAny {
@@ -114,7 +119,10 @@ export async function replay(opts: ReplayOptions): Promise<ReplayResult> {
 
     const outputs: Record<string, unknown> = {}
 
-    const block = async (step: string, reason: string): Promise<ReplayResult> => {
+    let interventionsUsed = 0
+    let approvedStep: string | null = null   // one-shot human approval, see below
+
+    const block = async (step: string, reason: string): Promise<ReplayResult | 'resumed'> => {
       // F31: Guard evidence capture so failures don't convert blocked→failed.
       try {
         await rec.shot(surface, `blocked-${step}`)
@@ -122,7 +130,14 @@ export async function replay(opts: ReplayOptions): Promise<ReplayResult> {
       } catch (e) {
         await note('evidence.capture_failed', { step, error: String(e) })
       }
-      lease = await leases.release(sessionId, 'human:operator')
+
+      interventionsUsed++
+      const overBudget = interventionsUsed > (opts.maxInterventions ?? 3)
+
+      // Evidence is captured while the agent still holds the lease, then control moves.
+      const urlBefore = surface.url()
+      lease = await leases.release(sessionId, 'human:operator', lease.token)
+      surface.setContext({ leaseHeld: false })
       const iv = await interventions.raise({
         runId, capability: opts.ref, step, reason,
         evidenceDir: rec.dir, redactedParams: redacted,
@@ -130,7 +145,53 @@ export async function replay(opts: ReplayOptions): Promise<ReplayResult> {
       await note('replay.blocked', { step, reason, interventionId: iv.id, leaseToken: lease.token })
       // F32: Count blocked as an attempt (no success).
       await store.recordReplayAttempt(opts.ref, false, null)
-      return { status: 'blocked', interventionId: iv.id, reason, evidence: rec.dir }
+      await note('control.handoff', { interventionId: iv.id, step, reason, token: lease.token })
+
+      if (overBudget) {
+        return { status: 'blocked', interventionId: iv.id, reason: 'intervention_budget_exhausted', evidence: rec.dir }
+      }
+
+      if (!opts.waitForHuman) {
+        return { status: 'blocked', interventionId: iv.id, reason, evidence: rec.dir }
+      }
+
+      if (opts.onIntervention) {
+        void opts.onIntervention(iv, surface.operatorHandle())
+          .catch((e) => note('operator.error', { interventionId: iv.id, error: String(e) }))
+      }
+
+      const deadline = Date.now() + (opts.humanTimeoutMs ?? 600_000)
+      let resolved: Intervention | null = null
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 500))
+        const current = await interventions.get(iv.id)
+        if (current.state === 'resolved') { resolved = current; break }
+      }
+
+      if (!resolved) {
+        await note('control.timeout', { interventionId: iv.id })
+        return {
+          status: 'blocked', interventionId: iv.id,
+          reason: `${reason}; no operator resolved it within ${opts.humanTimeoutMs ?? 600_000}ms`,
+          evidence: rec.dir,
+        }
+      }
+
+      // Take the wheel back with a fresh token, and record what moved while we were out.
+      lease = await leases.acquire(sessionId, 'agent', lease.token)
+      surface.setContext({ leaseHeld: true })
+      const urlAfter = surface.url()
+      await interventions.resolve(iv.id, resolved.note ?? '', [
+        { urlBefore, urlAfter, note: resolved.note ?? '' },
+      ])
+      await note('control.handback', { interventionId: iv.id, token: lease.token, urlBefore, urlAfter, note: resolved.note ?? '' })
+
+      // A HOLD is a decision a human owes us; resolving it grants that ONE step, once.
+      if (reason.startsWith('unapproved_mutation')) {
+        approvedStep = step
+        await note('human.approved_step', { interventionId: iv.id, step })
+      }
+      return 'resumed' as const
     }
 
     // Ruling F22: the single place every `failed` result is built. Evidence capture
@@ -155,7 +216,8 @@ export async function replay(opts: ReplayOptions): Promise<ReplayResult> {
     try {
       await surface.open(entryPoint)
 
-      for (const step of capability.steps) {
+      for (let i = 0; i < capability.steps.length; i++) {
+        const step = capability.steps[i]!
         await rec.event('step.start', { id: step.id, intent: step.intent, action: step.action })
 
         // A declared outcome can appear at any point, so it is checked before each
@@ -209,7 +271,12 @@ export async function replay(opts: ReplayOptions): Promise<ReplayResult> {
         if (resolution.kind === 'ambiguous') {
           // Two candidates is never an action. On a read it is a hard failure; on a
           // mutate a person choosing between them is a legitimate intervention.
-          if (capability.risk.class === 'mutate') return await block(step.id, `resolver_ambiguous:${resolution.count}`)
+          if (capability.risk.class === 'mutate') {
+            const outcome = await block(step.id, `resolver_ambiguous:${resolution.count}`)
+            if (outcome !== 'resumed') return outcome
+            i--
+            continue
+          }
           return await fail(
             step.id, `exactly one ${step.target!.role} named "${step.target!.name}"`,
             `${resolution.count} matches`, 'resolver_ambiguous',
@@ -219,7 +286,10 @@ export async function replay(opts: ReplayOptions): Promise<ReplayResult> {
         if (resolution.kind === 'none') {
           // Unknown means stop. An unrecognised screen is exactly where improvising
           // stops being automation and starts being a liability.
-          return await block(step.id, 'unrecognised_state_or_missing_control')
+          const outcome = await block(step.id, 'unrecognised_state_or_missing_control')
+          if (outcome !== 'resumed') return outcome
+          i--
+          continue
         }
 
         if (resolution.via !== 'primary' && binding) {
@@ -227,14 +297,34 @@ export async function replay(opts: ReplayOptions): Promise<ReplayResult> {
           await rec.event('step.drift', { id: step.id, via: resolution.via })
         }
 
+        // The token is only a guarantee if something checks it. If the lease moved while we
+        // were working, someone else is driving and we must not act.
+        if (!(await leases.holds(sessionId, 'agent', lease.token))) {
+          const outcome = await block(step.id, 'lease_lost')
+          if (outcome !== 'resumed') return outcome
+          i--
+          continue
+        }
+        const oneShot = approvedStep === step.id
+        if (oneShot) surface.setContext({ approvalState: 'approved' })
         try {
           await surface.act(step.action, resolution.node, valueFor(step, opts.params as Record<string, unknown>))
         } catch (e) {
-          if (e instanceof PolicyError && e.verdict === 'HOLD') return await block(step.id, e.reason)
+          if (e instanceof PolicyError && e.verdict === 'HOLD') {
+            const outcome = await block(step.id, e.reason)
+            if (outcome !== 'resumed') return outcome
+            i--
+            continue
+          }
           if (e instanceof PolicyError) {
             return await fail(step.id, 'an action permitted by policy', e.reason, 'policy_denied')
           }
           throw e
+        } finally {
+          if (oneShot) {
+            surface.setContext({ approvalState: capability.approval.state })
+            approvedStep = null
+          }
         }
 
         let cp = await surface.checkpointHolds(step.checkpoint)
@@ -267,7 +357,17 @@ export async function replay(opts: ReplayOptions): Promise<ReplayResult> {
       await store.recordReplayAttempt(opts.ref, true, null)
       return r
     } catch (e) {
-      if (e instanceof PolicyError && e.verdict === 'HOLD') return await block('(surface)', e.reason)
+      if (e instanceof PolicyError && e.verdict === 'HOLD') {
+        // A HOLD this early (before any step index exists to retry) is not reachable
+        // today — navigate/read/waitFor never classify as mutate — but the type still
+        // has to be handled honestly rather than assumed away.
+        const outcome = await block('(surface)', e.reason)
+        return outcome === 'resumed'
+          ? await fail('(run)', 'the recorded flow to complete',
+              'a human cleared the hold, but there is no step position to resume from here; re-run the capability',
+              'surface_error')
+          : outcome
+      }
       return await fail('(run)', 'the recorded flow to complete', String(e), 'surface_error')
     } finally {
       try {

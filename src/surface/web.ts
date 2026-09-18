@@ -4,9 +4,9 @@ import type { ActionKind, TargetDescriptor, Checkpoint } from '../capability/sch
 import { gate } from '../policy/gate.js'
 import type { PolicyConfig } from '../policy/allowlist.js'
 import { resolveDescriptor } from './resolver.js'
-import { PolicyError, type A11yNode, type FrameSnapshot, type Observation, type Resolution } from './types.js'
+import { PolicyError, type A11yNode, type FrameSnapshot, type Observation, type OperatorHandle, type Resolution } from './types.js'
 
-export type { Observation, A11yNode, Resolution, FrameSnapshot } from './types.js'
+export type { Observation, A11yNode, Resolution, FrameSnapshot, OperatorHandle } from './types.js'
 export { PolicyError } from './types.js'
 
 const EXTRACT = `() => {
@@ -183,6 +183,23 @@ export class WebSurface {
 
   url(): string {
     return this.page.url()
+  }
+
+  /** The human's way into the live session. Deliberately NOT policy-gated the way agent
+   *  actions are: a person who has been handed control is the authority, and in production
+   *  they would be driving the real browser window, which no allowlist can intercept. It IS
+   *  lease-gated, because two parties acting at once is the failure the lease exists to stop. */
+  operatorHandle(): OperatorHandle {
+    return {
+      click: async (name: string): Promise<void> => {
+        if (this.leaseHeld) throw new PolicyError('DENY', 'operator_acted_while_agent_holds_lease')
+        const loc = this.page.getByRole('button', { name })
+        const n = await loc.count()
+        if (n !== 1) throw new Error(`operator click "${name}" matched ${n} controls, expected exactly 1`)
+        await loc.click()
+      },
+      url: () => this.page.url(),
+    }
   }
 
   async close(): Promise<void> {

@@ -24,6 +24,13 @@ export type Resolution =
   | { kind: 'none' }
   | { kind: 'ambiguous'; count: number }
 
+/** The seam a real operator console would sit behind. The console is out of scope
+ *  (the brief permits mocking it); the control-transfer model is not. */
+export interface OperatorHandle {
+  click(name: string): Promise<void>
+  url(): string
+}
+
 export class PolicyError extends Error {
   constructor(
     readonly verdict: 'HOLD' | 'DENY',

@@ -25,13 +25,25 @@ async function main(): Promise<void> {
     ? `${baseUrl}/member/search?inject=${process.argv[inject + 1]}`
     : undefined
 
+  // --wait is the point of this whole task: a person has to be able to see and
+  // drive the parked window, so it forces headful regardless of HEADLESS.
+  const wait = process.argv.includes('--wait')
+
   const result = await replay({
     ref: capability,
     tenant: arg('tenant', 'firstvalley-cu'),
     params: JSON.parse(arg('params', '{}')) as Record<string, unknown>,
     storeRoot: 'store',
-    headless: process.env.HEADLESS === '1',
+    headless: wait ? false : process.env.HEADLESS === '1',
     entryPointOverride: entry,
+    waitForHuman: wait,
+    onIntervention: wait
+      ? async (iv) => {
+          console.log(`  blocked: ${iv.id}  (${iv.reason} at ${iv.step})`)
+          console.log('  the browser is open and waiting. do the step by hand, then:')
+          console.log(`    npm run operator -- resume ${iv.id} --note "what you did"`)
+        }
+      : undefined,
   })
 
   console.log(JSON.stringify(result, null, 2))
