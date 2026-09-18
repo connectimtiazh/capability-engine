@@ -12,11 +12,11 @@ const trace: Trace = {
       urlAfter: 'http://localhost:4000/member/search', textAfter: 'Member No.' },
     { intent: 'Submit the inquiry', action: 'click', resolvedVia: 'primary',
       target: { role: 'button', name: 'Inquire', framePath: [], fallbacks: [] },
-      urlAfter: 'http://localhost:4000/member/inquire', textAfter: 'Share Balance 1284.55 As Of 2026-09-17' },
+      urlAfter: 'http://localhost:4000/member/inquire', textAfter: 'Share Balance\n1284.55\nAs Of 2026-09-17' },
   ],
   extracted: { savingsBalance: { value: 'Share Balance 1284.55', as: 'number', from: { role: 'table', name: '', framePath: [], fallbacks: [] } } },
   observedOutcomes: [{ text: 'Member No.', url: 'http://localhost:4000/member/search' }],
-  finalText: 'Share Balance 1284.55 As Of 2026-09-17',
+  finalText: 'Share Balance\n1284.55\nAs Of 2026-09-17',
 }
 
 describe('compile', () => {
@@ -86,5 +86,19 @@ describe('compile', () => {
     expect(JSON.stringify(c.steps)).not.toContain('40021')
     expect(JSON.stringify(c.successCondition)).not.toContain('40021')
     expect(JSON.stringify(c.successCondition)).toContain('Share Balance')
+  })
+
+  it('parameterises the title rather than embedding the recorded value', () => {
+    const c = compile({ ...trace, goal: 'look up member 40021 and read their savings balance' },
+      { key: 'k', params: { memberId: '40021' } })
+    expect(c.title).toBe('look up member {memberId} and read their savings balance')
+    expect(JSON.stringify({ t: c.title, d: c.description })).not.toContain('40021')
+  })
+
+  it('refuses to anchor a checkpoint on a recorded output value', () => {
+    const c = compile(trace, { key: 'k', params: { memberId: '40021' } })
+    const emitted = JSON.stringify({ s: c.steps, ok: c.successCondition })
+    expect(emitted).not.toContain('1284.55')
+    expect(emitted).not.toContain('2026-09-17')
   })
 })
