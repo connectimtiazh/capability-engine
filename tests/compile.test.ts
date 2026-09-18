@@ -114,4 +114,12 @@ describe('compile', () => {
     expect(() => compile(singleLine, { key: 'k', params: { memberId: '40021' } }))
       .toThrow(/cannot derive a checkpoint/)
   })
+
+  it('substitutes overlapping parameter values longest-first', () => {
+    const c = compile(
+      { ...trace, goal: 'reconcile member 400 against account 40021' },
+      { key: 'k', params: { memberId: '400', accountId: '40021' } },
+    )
+    expect(c.title).toBe('reconcile member {memberId} against account {accountId}')
+  })
 })

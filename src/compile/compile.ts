@@ -65,7 +65,10 @@ export function compile(
    *  describes the capability rather than the one record it was recorded against. */
   const parameterise = (text: string): string => {
     let out = text
-    for (const [name, value] of Object.entries(opts.params)) {
+    // Longest value first, for the same reason byValue sorts: a shorter value that is a
+    // substring of a longer one would otherwise consume it and leave the longer unmatched.
+    const byLength = Object.entries(opts.params).sort((a, b) => b[1].length - a[1].length)
+    for (const [name, value] of byLength) {
       if (value.length >= 3) out = out.split(value).join(`{${name}}`)
     }
     return out
