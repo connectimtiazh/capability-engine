@@ -101,4 +101,17 @@ describe('compile', () => {
     expect(emitted).not.toContain('1284.55')
     expect(emitted).not.toContain('2026-09-17')
   })
+
+  it('throws rather than emitting a checkpoint anchored on a volatile value', () => {
+    const singleLine: Trace = {
+      ...trace,
+      steps: [
+        trace.steps[0]!,
+        { ...trace.steps[1]!, textAfter: 'Share Balance 1284.55 As Of 2026-09-17' },
+      ],
+      finalText: 'Share Balance 1284.55 As Of 2026-09-17',
+    }
+    expect(() => compile(singleLine, { key: 'k', params: { memberId: '40021' } }))
+      .toThrow(/cannot derive a checkpoint/)
+  })
 })
