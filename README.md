@@ -7,9 +7,15 @@ declared checkpoint after each one, and stops the moment it sees something it do
 rather than improvise. This repo demonstrates that split against a deliberately hostile local
 target application (nested layout tables, `<font>` tags, ASP-style control names, no `id` or
 `data-testid` anywhere, and injectable interstitials). The target app also serves a frameset at `/`,
-and frame traversal is implemented (`framePath` on every descriptor and DOM node, `src/surface/
-web.ts`) — but every demo and test in this repo enters directly at `/member/search`, so that code
-path is exercised by nothing here and should be read as implemented, not as demonstrated.
+and frame traversal (`framePath` on every descriptor and DOM node, `src/surface/web.ts`) is now
+genuinely exercised end to end by the test suite — entry navigation waits on the frameset's child
+frames, a step resolves and acts inside a named frame, and outcome detection is scoped to the frame
+it belongs to, including under a `?inject=slow-frame` race (`tests/surface.test.ts`, `tests/
+replay.test.ts`). The capability shipped in this repo, `quest-core/member.savings_balance`, was
+discovered directly at `/member/search`, though, so its steps carry an empty `framePath` and it is
+not itself frame-scoped; running it against the frameset root (`--entry http://localhost:4000/`)
+correctly blocks rather than guessing, because its targets don't exist at that framePath — see
+"Break it yourself" below.
 
 ## Setup
 
@@ -27,7 +33,7 @@ npm test
 ```
 
 Exercises the whole system, including the discovery loop, against a scripted stand-in for the
-model — no network call, no API key. This currently passes **118 tests across 16 files**.
+model — no network call, no API key. This currently passes **154 tests across 17 files**.
 
 `npm run typecheck` runs clean with no output.
 
@@ -86,12 +92,19 @@ step's own target cannot be found (see `REPORT.md` §3), the step blocks again w
 **3. Approve.** Promotes the capability so its mutating steps can run unattended.
 
 ```
-npm run approve -- quest-core/member.savings_balance@1.0.0 --by "operator:local"
+npm run approve -- quest-core/member.savings_balance@1.0.0 --business-risk read
 ```
 
 ```
-approved quest-core/member.savings_balance@1.0.0 (by operator:local); replayStats: {"attempts":...,"successes":...,"lastFailure":null}
+approved quest-core/member.savings_balance@1.0.0 (by operator:local); business=read/human-confirmed; replayStats: {"attempts":...,"successes":...,"lastFailure":null}
 ```
+
+`--business-risk` is how a human takes responsibility for what this capability actually does to the
+bank's ledger (`risk.business`/`risk.businessSetBy` on the artifact) — separate from `approval.state`,
+which only says its UI steps may run unattended. Omitting the flag leaves `risk.business` wherever
+discovery left it (`unclassified`, or a model's own proposal, never authoritative on its own); an
+`irreversible` capability's mutations stay held for a human on every step until this flag sets
+`businessSetBy` to `human-confirmed` — see `REPORT.md` §2 and §6.
 
 **4. Replay demos**, all unattended (`HEADLESS=1`):
 
@@ -140,6 +153,34 @@ npm run catalog -- invoke quest_core__member_savings_balance --args '{"memberId"
 
 Stop the target app (`Ctrl-C` in its terminal, or kill the `tsx target-app/server.ts` process) once
 you are done.
+
+## Break it yourself
+
+One command per runtime condition. Every row was actually run, against the target app started as
+above, with the capability approved as in step 3. `HEADLESS=1` throughout; drop it to watch.
+
+| Condition | Command | Result |
+|---|---|---|
+| Legitimate business outcome | `npm run replay -- --capability quest-core/member.savings_balance@1.0.0 --params '{"memberId":"99999"}'` | `{"status":"business_outcome","code":"MEMBER_NOT_FOUND","message":"No member exists with that number.","evidence":"store\\runs\\rep_5d53aec8"}` |
+| Cross-member replay proving parameterisation | `npm run replay -- --capability quest-core/member.savings_balance@1.0.0 --params '{"memberId":"40023"}'` | `{"status":"success","outputs":{"savingsBalance":312},"evidence":"store\\runs\\rep_30443678"}` — same recorded capability, a different member's own balance, not `40021`'s `1284.55` |
+| A second declared outcome, distinct from "not found" | `npm run replay -- --capability quest-core/member.savings_balance@1.0.0 --params '{"memberId":"40022"}'` | `{"status":"business_outcome","code":"ACCOUNT_RESTRICTED","message":"This member requires elevated entitlements.","evidence":"store\\runs\\rep_da973167"}` |
+| Recovered session timeout | `npm run replay -- --capability quest-core/member.savings_balance@1.0.0 --params '{"memberId":"40021"}' --inject session-timeout` | `{"status":"success","outputs":{"savingsBalance":1284.55},"evidence":"store\\runs\\rep_ac7e9448"}` — `onError` signs back in and the run finishes; the timeline shows `step.recovered`, not `step.waited` |
+| Blocked unknown dialog | `npm run replay -- --capability quest-core/member.savings_balance@1.0.0 --params '{"memberId":"40021"}' --inject unknown-dialog` | `{"status":"blocked","interventionId":"iv_22cfb7","reason":"unrecognised_state_or_missing_control","evidence":"store\\runs\\rep_0a25cbc3"}` — a dialog the capability didn't declare stops the run instead of being dismissed like the known "Message of the Day" |
+| `step_timeout` under a tight budget † | `npm run replay -- --capability quest-core/member.savings_balance@1.0.0 --params '{"memberId":"40021"}' --inject slow-inquire` | `{"status":"failed","step":"s2","class":"step_timeout","observed":"action click did not complete within 1000ms: ...","evidence":"store\\runs\\rep_8de8dce8"}` |
+| A run through the frameset at `/` ‡ | `npm run replay -- --capability quest-core/member.savings_balance@1.0.0 --params '{"memberId":"40021"}' --entry http://localhost:4000/` | `{"status":"blocked","interventionId":"iv_0ff9d7","reason":"unrecognised_state_or_missing_control","evidence":"store\\runs\\rep_085c847e"}` — entry navigation reaches the frameset and waits on its child frames, then correctly refuses: this capability's steps carry `framePath: []`, and the "Member No." control lives at `framePath: ["main"]` |
+
+† `--inject slow-inquire` delays the `/member/inquire` POST by 3s; the shipped capability's own
+`s2.timeoutMs` is `8000`, comfortably longer, so reproducing the timeout means temporarily
+tightening it — the same "edit the artifact, run the demo, put it back" pattern step 2 above uses
+for `approval.state`. Set `steps[1].timeoutMs` to `1000` and `steps[1].onError`'s `timeout` rung's
+`max` to `1` in `store/capabilities/quest-core/member.savings_balance/1.0.0.json`, run the command,
+then restore the two values.
+
+‡ `--entry` overrides the tenant binding's own entry point for one run, without hand-editing
+`store/bindings/`. This is the honest outcome for *this* capability: proof the frameset is actually
+reached (see README intro), not proof this capability can drive it — a frame-scoped variant would
+need `framePath: ["main"]` on every step and outcome, which is exactly what `tests/replay.test.ts`
+("replay through the frameset at /") exercises end to end instead.
 
 ## What lives where
 

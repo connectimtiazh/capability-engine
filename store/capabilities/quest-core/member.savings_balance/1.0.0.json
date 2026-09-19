@@ -179,24 +179,72 @@
       "when": {
         "route": "/member/inquire"
       }
+    },
+    {
+      "code": "MEMBER_NOT_FOUND",
+      "detect": {
+        "kind": "text-present",
+        "framePath": [
+          "main"
+        ],
+        "text": "No record found"
+      },
+      "terminal": true,
+      "message": "No member exists with that number.",
+      "when": {
+        "route": "/member/inquire",
+        "framePath": [
+          "main"
+        ]
+      }
+    },
+    {
+      "code": "ACCOUNT_RESTRICTED",
+      "detect": {
+        "kind": "text-present",
+        "framePath": [
+          "main"
+        ],
+        "text": "Access restricted"
+      },
+      "terminal": true,
+      "message": "This member requires elevated entitlements.",
+      "when": {
+        "route": "/member/inquire",
+        "framePath": [
+          "main"
+        ]
+      }
     }
   ],
   "risk": {
     "interaction": "ui_mutation",
-    "business": "unclassified",
-    "businessSetBy": "default"
+    "business": "read",
+    "businessSetBy": "human-confirmed"
   },
   "provenance": {
     "discoveredBy": "anthropic/claude-sonnet-5",
     "discoveryRunId": "disc_40ec511e",
-    "recordedAt": "2026-09-19T10:27:36.294Z",
-    "humanEdits": []
+    "recordedAt": "2026-09-19T13:26:49.237Z",
+    "humanEdits": [
+      {
+        "at": "2026-09-19T13:26:57.953Z",
+        "by": "operator:local",
+        "note": "approved for unattended replay"
+      },
+      {
+        "at": "2026-09-19T13:26:57.954Z",
+        "by": "operator:local",
+        "note": "confirmed business risk: read"
+      }
+    ]
   },
   "approval": {
-    "state": "draft",
+    "state": "approved",
+    "approvedBy": "operator:local",
     "replayStats": {
-      "attempts": 0,
-      "successes": 0,
+      "attempts": 7,
+      "successes": 5,
       "lastFailure": null
     }
   }

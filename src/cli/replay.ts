@@ -15,15 +15,23 @@ async function main(): Promise<void> {
   try {
     capability = arg('capability')
   } catch {
-    console.log('usage: npm run replay -- --capability <ref> [--tenant <tenant>] [--params <json>]')
+    console.log('usage: npm run replay -- --capability <ref> [--tenant <tenant>] [--params <json>] [--entry <url>] [--inject <condition>]')
     process.exit(1)
   }
 
   const baseUrl = process.env.TARGET_APP_URL ?? 'http://localhost:4000'
   const inject = process.argv.indexOf('--inject')
+  const entryFlag = process.argv.indexOf('--entry')
+  // --entry lets a demo point this run at a different URL than the tenant binding's
+  // own entryPoint — e.g. the frameset shell at `/` instead of `/member/search` —
+  // without hand-editing the binding file. --inject still wins if both are given,
+  // since it targets the one route (/member/search) every inject condition is
+  // written against.
   const entry = inject >= 0
     ? `${baseUrl}/member/search?inject=${process.argv[inject + 1]}`
-    : undefined
+    : entryFlag >= 0
+      ? (process.argv[entryFlag + 1] ?? baseUrl)
+      : undefined
 
   // --wait is the point of this whole task: a person has to be able to see and
   // drive the parked window, so it forces headful regardless of HEADLESS.

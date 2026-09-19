@@ -1,9 +1,0 @@
-{"at":"2026-09-18T13:42:16.088Z","type":"replay.start","ref":"quest-core/member.savings_balance@1.0.0","tenant":"firstvalley-cu","params":{"memberId":"sha256:728a187ed87b"},"runId":"rep_80e35889"}
-{"at":"2026-09-18T13:42:16.450Z","type":"step.start","id":"s1","intent":"Enter member number {memberId}","action":"fill"}
-{"at":"2026-09-18T13:42:16.595Z","type":"step.recovered","id":"s1"}
-{"at":"2026-09-18T13:42:16.674Z","type":"step.ok","id":"s1"}
-{"at":"2026-09-18T13:42:16.675Z","type":"step.start","id":"s2","intent":"Submit member number search","action":"click"}
-{"at":"2026-09-18T13:42:16.793Z","type":"step.ok","id":"s2"}
-{"at":"2026-09-18T13:42:16.794Z","type":"step.start","id":"s3","intent":"Read savingsBalance from the result screen","action":"read"}
-{"at":"2026-09-18T13:42:16.815Z","type":"step.extract","id":"s3","into":"savingsBalance"}
-{"at":"2026-09-18T13:42:16.822Z","type":"replay.result","result":{"status":"success","outputs":"[see run]","evidence":"store\\runs\\rep_80e35889"}}

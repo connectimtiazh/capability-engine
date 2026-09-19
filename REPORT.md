@@ -51,7 +51,7 @@ The real discovered artifact is
   "version": "1.0.0",
   "inputs": {
     "required": ["memberId"],
-    "properties": { "memberId": { "type": "string", "pattern": "^[0-9]{5}$", "x-sensitivity": "pii" } }
+    "properties": { "memberId": { "type": "string", "pattern": "^[0-9]+$", "x-sensitivity": "pii" } }
   },
   "outputs": {
     "required": ["savingsBalance"],
@@ -59,45 +59,75 @@ The real discovered artifact is
   },
   "steps": [
     { "id": "s1", "action": "fill",
-      "target": { "role": "textbox", "name": "Member No." },
-      "checkpoint": { "kind": "field-has-value", "role": "textbox", "name": "Member No." } },
+      "target": { "role": "textbox", "name": "Member No.", "framePath": [] },
+      "value": { "fromInput": "memberId" },
+      "checkpoint": { "kind": "field-value-matches-input", "role": "textbox", "name": "Member No.", "input": "memberId" },
+      "timeoutMs": 8000 },
     { "id": "s2", "action": "click",
-      "target": { "role": "button", "name": "Inquire" },
-      "checkpoint": { "kind": "text-present", "text": "Share Balance" } },
+      "target": { "role": "button", "name": "Inquire", "framePath": [] },
+      "checkpoint": { "kind": "text-present", "text": "Share Balance" },
+      "timeoutMs": 8000 },
     { "id": "s3", "action": "read",
       "target": { "anchor": { "kind": "table-cell", "rowHeader": "Share Balance", "offset": { "col": 1 } } },
       "extract": { "into": "savingsBalance", "as": "number" },
-      "checkpoint": { "kind": "text-present", "text": "Share Balance" } }
+      "checkpoint": { "kind": "text-present", "text": "Share Balance" },
+      "timeoutMs": 8000 }
   ],
   "businessOutcomes": [
-    { "code": "MEMBER_NOT_FOUND", "detect": { "kind": "text-present", "text": "No record found" }, "terminal": true },
-    { "code": "ACCOUNT_RESTRICTED", "detect": { "kind": "text-present", "text": "Access restricted" }, "terminal": true }
+    { "code": "MEMBER_NOT_FOUND", "detect": { "kind": "text-present", "text": "No record found" },
+      "terminal": true, "when": { "route": "/member/inquire" } },
+    { "code": "ACCOUNT_RESTRICTED", "detect": { "kind": "text-present", "text": "Access restricted" },
+      "terminal": true, "when": { "route": "/member/inquire" } }
   ],
+  "risk": { "interaction": "ui_mutation", "business": "read", "businessSetBy": "human-confirmed" },
   "approval": { "state": "approved", "approvedBy": "operator:local" }
 }
 ```
 
-Four choices shape this schema. First, a step's `target` is an intent-level descriptor — role,
+Five choices shape this schema. First, a step's `target` is an intent-level descriptor — role,
 accessible name, an optional table-cell anchor, and a fallback ladder — never a CSS selector or an
 XPath. Replay must resolve a descriptor to exactly one live node or refuse; two candidates is
 treated the same as zero (`src/surface/resolver.ts`). Second, every step carries its own
 `checkpoint`, so a click that silently did nothing fails at that step, not four steps later where
-the failure is harder to attribute. Third, `businessOutcomes` are declared at record time as a
-list of (detector, code, message) triples. This makes "no such member" a typed, named return value
-rather than a screen of text a caller has to parse, and it means anything the record run did not
-declare cannot later be silently reinterpreted as an empty or successful result — an unrecognised
-screen stops the run instead. Fourth, `approval` plus `replayStats` (`attempts`, `successes`,
-`lastFailure`) sit on the artifact itself, because unattended execution is a permission a specific
-recorded behaviour earns, and only a production history can earn it — a freshly discovered
-capability starts in `draft` and cannot mutate anything until a human calls `npm run approve`.
+the failure is harder to attribute. A fill's checkpoint (`field-value-matches-input`) goes further
+than presence: it reads the control's live value back and compares it against the exact value this
+invocation supplied, so a stale value left over from a previous run — a different member's number,
+say — cannot be mistaken for evidence that this run's fill landed (`src/surface/web.ts`,
+`checkpointHolds`; `tests/surface.test.ts`, "fails field-value-matches-input when a stale value is
+already in the box"). A literal fill (no traceable input — nothing this invocation supplied to
+compare against) keeps the weaker `field-has-value` check, which can only assert non-emptiness.
+Third, `businessOutcomes` are declared as a list of (detector, code, message, route) tuples, and
+`when.route` — checked against the frame it names, or the page when it names none — scopes each one
+to the screen it was authored against: the same "No record found" text sitting on an unrelated page
+must never be attributed to this operation's result (`src/replay/outcomes.ts`,
+`detectBusinessOutcome`; `tests/outcomes.test.ts`, "does not fire when the matching text sits on a
+different, unscoped page"). This makes "no such member" a typed, named return value rather than a
+screen of text a caller has to parse, and it means anything the record run did not declare cannot
+later be silently reinterpreted as an empty or successful result — an unrecognised screen stops the
+run instead. Fourth, `risk` separates two facts that used to be one: `interaction` is `ui_mutation`
+or `read`, a fact about the action verbs the recipe performs, derived mechanically from
+`classifyAction`; `business` is a claim about what those verbs do to the bank's ledger — `read`,
+`mutation`, or `irreversible` — and `businessSetBy` records who is answerable for that claim.
+Discovery may have the model propose one (`model-proposed`, a hint with no authority); the policy
+gate (`src/policy/gate.ts`) will not let an `irreversible` capability's mutations run unattended
+until a human overrides it to `human-confirmed` via `npm run approve -- <ref> --business-risk
+<read|mutation|irreversible>` — an approved-but-unconfirmed irreversible capability still holds for
+a human on every mutating step (`tests/policy.test.ts`, "holds an approved capability marked
+irreversible by a model proposal"; "passes an approved, irreversible capability once a human has
+confirmed it"). Fifth, `approval` plus `replayStats` (`attempts`, `successes`, `lastFailure`) sit on
+the artifact itself, because unattended execution is a permission a specific recorded behaviour
+earns, and only a production history can earn it — a freshly discovered capability starts in
+`draft` and cannot mutate anything until a human calls `npm run approve`.
 
 The model authors the step intents and the extraction anchor, once, during discovery. Business-
-outcome detectors are not among them: `KNOWN_OUTCOMES` in `src/compile/compile.ts` is a fixed,
-vendor-level list (`MEMBER_NOT_FOUND`, `ACCOUNT_RESTRICTED`) baked in at compile time, and every
-discovered capability for this vendor gets the same two detectors regardless of what that
-particular discovery trace actually saw. None of the three are evaluated by a model at run time;
-`checkpointHolds`, `resolveDescriptor`, and `detectBusinessOutcome` are all plain pattern matches
-over the current DOM snapshot.
+outcome detectors are not among them, and are no longer a hardcoded compiler list either: each
+detector is authored by a human, once per vendor application, in `vendors/<product>.outcomes.json`
+(here, `vendors/quest-core.outcomes.json`) and loaded by `compile()` at compile time
+(`loadOutcomeRegistry`, `src/compile/compile.ts`). A capability for "update mailing address" does
+not inherit a detector meant for a balance inquiry just because both are QuestCore screens; a
+vendor with no registry file compiles with zero outcomes rather than a guess. None of the three
+run-time checks are evaluated by a model; `checkpointHolds`, `resolveDescriptor`, and
+`detectBusinessOutcome` are all plain pattern matches over the current DOM snapshot.
 
 ## 3. Determinism & error handling
 
@@ -137,6 +167,30 @@ supplied parameter or a token from a declared extraction, and if every line on t
 is volatile it refuses to compile a checkpoint at all rather than emit one that could only ever
 replay correctly for the single record it was recorded against.
 
+Per-step `timeoutMs` is enforced, not advisory. `execute.ts` computes a deadline once per step and
+threads whatever remains of it into every surface call the step makes — resolve, act, checkpoint,
+extract — as Playwright's own `timeout` option, never raced from outside
+(`src/surface/web.ts`, `act`, `observeBudgeted`). A `timeout` recovery rung still runs, bounded by
+its own `max`, but once the step's own clock runs out the run reports a distinct `step_timeout`
+naming the step, rather than folding a slow page into the same failure class as a wrong one. The
+entry navigation ahead of step one is budgeted the same way, against the first step's own
+`timeoutMs`, so a slow target application produces a reportable `step_timeout` at `(entry)` instead
+of hanging on Playwright's default (`tests/replay.test.ts`, "fails with step_timeout at (entry)
+when the entry page overruns a tight first-step budget"). See the condition → test → evidence table
+at the end of this section for the live demo.
+
+### What the tests could not catch
+
+The suite was green — 154 tests, all passing — when the first run with a human actually in the loop
+returned a confident wrong answer: member 40021, who exists and has a balance, came back as
+`MEMBER_NOT_FOUND`. `evidence/rep_51bad52a` is that run; `evidence/rep_c2ad2583` is the same demo
+re-run under the fix, blocking honestly instead of guessing. No test had modelled a human navigating
+the live page during a pause, because a suite exercises the inputs someone thought to write down,
+and a live handoff is exactly the case where the interesting input is what happens when nobody
+prescribed the next screen. The method that came out of it: every guarantee in this report now has
+a test that was deliberately broken to prove it can fail, and every claim in this report points at a
+committed run under `evidence/`.
+
 Running the live handoff demo found a real bug in the replay loop itself, not in checkpoint
 derivation. `evidence/rep_51bad52a/timeline.jsonl` shows it exactly: after `control.handback` for
 the s2 (click "Inquire") intervention — recorded as `urlBefore=/member/search`,
@@ -152,19 +206,32 @@ If it resolves, replay proceeds normally. If it does not, the run blocks with
 `page_moved_during_handoff` instead of guessing — see §5 for the re-run of this exact demo under
 the fix.
 
-Preparing that same demo also turned up a second, unrelated defect: the `field-has-value`
+Preparing that same demo also turned up a second, unrelated defect, since fixed: the `field-has-value`
 checkpoint on step s1 originally asserted only that a control with the given role and name existed
 on screen — a check that could never fail, since the field is on screen whether or not anything was
 ever typed into it. It was not the cause of the `MEMBER_NOT_FOUND` above (that was the loop bug
 described above); it is a separate gap in checkpoint derivation, found in the course of the same
-demo. The checkpoint now reads the control's live value (`src/surface/web.ts`, `checkpointHolds`)
-and reports `checkpoint_failed` if it is empty, rather than reporting "present" regardless. No
-committed run currently exercises this path — `grep -r checkpoint_failed evidence/` finds nothing —
-so this is described as a defect that was found and fixed, not as a demonstrated result. A stronger
-variant would compare the field's live value against the parameter that was supposed to be in it,
-rather than only checking non-emptiness; that is not built, and the gap it leaves is real — a field
-cleared and then re-filled with something else, or cleared after its own checkpoint passed but
-before the next step reads it, would not be caught by a non-emptiness check alone.
+demo. A fill traced back to a declared input now compiles to `field-value-matches-input`, which
+reads the control's live value and compares it against the exact value this invocation supplied —
+not merely that it holds something, not merely that it is non-empty — and reports
+`checkpoint_failed` with a redacted diagnostic (`field ... holds [redacted], expected [redacted]`
+for a `pii`-declared input; `src/policy/redact.ts`, `redactValue`) if it does not match
+(`src/surface/web.ts`, `checkpointHolds`). `tests/surface.test.ts`, "fails field-value-matches-input
+when a stale value is already in the box," is the unit proof: a field cleared and refilled with a
+different value, or cleared after its own checkpoint passed but before the next step reads it, is
+exactly the case this closes. A fill with nothing to trace back to — a literal, not lifted from a
+parameter — keeps the weaker `field-has-value` check, since there is no per-invocation value to
+compare it against; that narrower gap is real and remains.
+
+### Terrain cases: condition → test → evidence
+
+| Condition | Test | Evidence |
+|---|---|---|
+| Stale value already in the field | `tests/surface.test.ts` — "fails field-value-matches-input when a stale value is already in the box" | unit test; the checkpoint predicate is pure, no live run needed |
+| Outcome text on the wrong page | `tests/outcomes.test.ts` — "does not fire when the matching text sits on a different, unscoped page" | unit test |
+| Page too slow for its budget | `tests/replay.test.ts` — "fails with step_timeout, naming the step, when a mid-flow step exceeds its budget" | `evidence/rep_8de8dce8` — live demo, `s2.timeoutMs` tightened to 1000ms against `--inject slow-inquire` |
+| Human moves the page mid-handoff | `tests/handoff.test.ts` — "does not read a business outcome off a page a human moved during a handback (C1)" | `evidence/rep_51bad52a` (before) → `evidence/rep_c2ad2583` (after) |
+| Frameset entry with a slow child | `tests/surface.test.ts` — "a one-shot resolve immediately after open() finds the textbox even when the \"main\" frame is slow to load"; `tests/replay.test.ts` — "survives a \"main\" frame slower than any incidental retry cushion" | unit/integration tests against `?inject=slow-frame`; no committed live-demo run — see §7 |
 
 ## 4. Heterogeneity & multi-tenant
 
@@ -201,8 +268,9 @@ Three conditions stop a run deterministically and hand it to a human rather than
 A resolver finding more than one match for a mutating step's target is not a decision the run can
 make on its own — an ambiguous read fails outright, but an ambiguous mutate raises an intervention,
 because a person choosing between two candidates is a legitimate thing to ask for. A resolver
-finding no match at all — an unrecognised screen — always raises an intervention regardless of risk
-class; an unfamiliar state is exactly where automation should stop rather than improvise. And a
+finding no match at all — an unrecognised screen — always raises an intervention regardless of the
+capability's declared risk; an unfamiliar state is exactly where automation should stop rather than
+improvise. And a
 mutating action on a still-`draft` capability is held by the policy gate until a human grants
 one-shot approval for that specific step.
 
@@ -238,9 +306,9 @@ finds nothing, raises a third intervention with reason `page_moved_during_handof
 resolving it — ends `status: "blocked"` with that reason. This is the correct ending: the mechanics
 (lease, fencing token, retry-from-a-live-re-observation) all worked, and the run said "I don't know
 where I am" instead of guessing. `evidence/rep_51bad52a` is kept as the committed record of the bug;
-`evidence/rep_c2ad2583` is the same demo re-run under the fix. The separate `field-has-value` defect
-described in §3 is fixed in the same code but is not itself demonstrated by a committed run — see
-§3 for why.
+`evidence/rep_c2ad2583` is the same demo re-run under the fix. The separate `field-value-matches-input`
+fix described in §3 is proven by `tests/surface.test.ts` rather than by a second live demo run — see
+the condition → test → evidence table at the end of §3.
 
 ## 6. Safety
 
@@ -248,7 +316,14 @@ Every action funnels through one gate (`src/policy/gate.ts`), called from inside
 `WebSurface.check`, the only method that touches the live page. Its inputs are deterministic:
 whether the target URL's origin and path prefix are on the allowlist, whether the action's class
 (`read` or `mutate`, derived from the verb, not hand-labelled per step) requires approval, whether
-the capability's `approval.state` is `approved`, and whether the caller currently holds the lease.
+the capability's `approval.state` is `approved`, whether the caller currently holds the lease, and —
+for a mutation on a capability whose `risk.business` is `irreversible` — whether `risk.businessSetBy`
+is `human-confirmed`. `approval.state === 'approved'` lifts the draft hold for `read`, `mutation`, and
+`unclassified` business risk; it does not by itself vouch for an irreversible consequence, which a
+model proposing it (`businessSetBy: 'model-proposed'`) or the compiler defaulting it
+(`'default'`) does not get to make good on — only `npm run approve -- <ref> --business-risk
+irreversible` does (`tests/policy.test.ts`, "holds an approved capability marked irreversible by a
+model proposal" / "passes an approved, irreversible capability once a human has confirmed it").
 Model confidence is not an input to this gate, deliberately — a safety check keyed on a
 self-reported score from the same model whose actions it is meant to constrain is not a safety
 check. Because the gate lives inside the one module that can reach Playwright, neither discovery
@@ -276,13 +351,30 @@ escape the mask. The set of values treated as "varies per invocation" during com
 only what was declared as an input or an extraction; an undeclared value that happens to change
 every run — a rendered timestamp nobody wired to an output — could still be chosen as a checkpoint
 anchor, and the only fix is to declare it as an extraction so the compiler knows to avoid it. A
-checkpoint can assert that a field is non-empty; it cannot assert that it holds the correct value,
-which is the gap discussed in §3. The control lease assumes exactly one writer, the replay engine;
-a second lease writer would reopen the compare-and-swap race the fencing token exists to close, and
-closing it again would need a lock file. An input's `pattern` is inferred from a single recorded
-example (`^[0-9]{5}$` from one five-digit member number), so it over-fits and would reject a valid
-value of a different length. And a compromised `Binding` is a compromised tenant: nothing here
-defends against a binding file itself being tampered with.
+checkpoint on a fill traced back to a declared input now asserts it holds exactly that value
+(`field-value-matches-input`, §3); a literal fill — nothing to trace back to — still only gets a
+non-emptiness check, since there is no per-invocation value to compare it against. The control
+lease assumes exactly one writer, the replay engine; a second lease writer would reopen the
+compare-and-swap race the fencing token exists to close, and closing it again would need a lock
+file. And a compromised `Binding` is a compromised tenant: nothing here defends against a binding
+file itself being tampered with.
+
+Four narrower gaps, specific to this wave's own work, are worth naming plainly rather than folding
+into the paragraph above. `open()` waits for every child frame the frameset happens to have, not
+only the ones a given capability's steps actually touch (`src/surface/web.ts`, F52) — harmless here,
+where the frameset has exactly two frames and both load fast, but a frameset with a child no
+capability ever reads would still be waited on. The vendor outcome registry's route/frame entries
+are non-overlapping in `vendors/quest-core.outcomes.json` because this app's own routes happen not
+to collide, not because `loadOutcomeRegistry` or `detectBusinessOutcome` enforce it — nothing
+rejects two entries that would both match the same screen, and the first in file order would win
+silently. The replay-level "survives a main frame slower than any incidental retry cushion" test
+does not actually discriminate a fixed `open()` from a broken one, by its own comment
+(`tests/replay.test.ts`, F52): `observe()`'s own frame evaluation happens to absorb the same delay
+by a different path, so it is kept as an end-to-end regression guard, not as the proof — the test
+that actually distinguishes them is in `tests/surface.test.ts`. And the committed handoff evidence
+(`evidence/rep_51bad52a`, `evidence/rep_c2ad2583`) is a script driving both sides of the pause, not
+an independent person; it demonstrates the mechanics (lease, fencing token, retry-from-a-live-
+re-observation) faithfully, but it is not a substitute for an actual second operator.
 
 ## 7. Cuts
 
@@ -294,12 +386,14 @@ same descriptor vocabulary as the web one, but one implementation was enough to 
 holds. Multi-tenant plumbing beyond `Binding` and `driftLog` — isolation, a control plane, queues
 between tenants. Multi-run stability scoring — `replayStats` on the artifact is the hook a scoring
 system would read, but the harness that would run a capability N times and score its stability is
-not built. Auth flows — the target application stubs login rather than requiring it. Per-application
-business-outcome detectors — §2 is explicit that `KNOWN_OUTCOMES` is a fixed, vendor-level list
-authored once in the compiler, not derived from any individual discovery trace; having the model
-(or a human, reviewing the trace) propose additional detectors specific to what a given discovery
-run actually saw is not built, and every capability discovered against this vendor today gets the
-same two outcomes whether or not its own trace ever exercised them.
+not built. Auth flows — the target application stubs login rather than requiring it. Per-discovery-
+trace business-outcome proposal — §2 describes the outcome registry (`vendors/<product>.outcomes
+.json`) as human-authored, once per vendor, and loaded at compile time; that is a real improvement
+over the old hardcoded compiler list, but it is still authored ahead of any particular discovery run,
+not derived from one. Having the model (or a human, reviewing a specific trace) propose additional
+detectors — or flag that a vendor has none yet — specific to what that discovery run actually saw is
+not built, and a capability discovered against a vendor with a stale or incomplete registry file
+compiles silently with whatever that file happens to declare, right or wrong.
 
 One cut is refused on principle rather than for time: an LLM fallback for when replay fails. It
 would reintroduce exactly the nondeterminism this system exists to remove — the entire argument in

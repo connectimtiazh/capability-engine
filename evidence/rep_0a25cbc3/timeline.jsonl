@@ -1,0 +1,7 @@
+{"at":"2026-09-19T13:27:33.723Z","type":"replay.start","ref":"quest-core/member.savings_balance@1.0.0","tenant":"firstvalley-cu","params":{"memberId":"sha256:728a187ed87b"},"runId":"rep_0a25cbc3"}
+{"at":"2026-09-19T13:27:33.915Z","type":"step.start","id":"s1","intent":"Enter member number {memberId}","action":"fill"}
+{"at":"2026-09-19T13:27:34.461Z","type":"step.waited","id":"s1","rung":"timeout"}
+{"at":"2026-09-19T13:27:34.993Z","type":"step.waited","id":"s1","rung":"timeout"}
+{"at":"2026-09-19T13:27:35.125Z","type":"replay.blocked","step":"s1","reason":"unrecognised_state_or_missing_control","interventionId":"iv_22cfb7","leaseToken":2}
+{"at":"2026-09-19T13:27:35.126Z","type":"control.handoff","interventionId":"iv_22cfb7","step":"s1","reason":"unrecognised_state_or_missing_control","token":2}
+{"at":"2026-09-19T13:27:35.126Z","type":"replay.result","result":{"status":"blocked","interventionId":"iv_22cfb7","reason":"unrecognised_state_or_missing_control","evidence":"store\\runs\\rep_0a25cbc3"}}

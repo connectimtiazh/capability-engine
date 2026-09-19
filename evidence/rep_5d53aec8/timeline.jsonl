@@ -1,0 +1,5 @@
+{"at":"2026-09-19T13:27:18.097Z","type":"replay.start","ref":"quest-core/member.savings_balance@1.0.0","tenant":"firstvalley-cu","params":{"memberId":"sha256:6ab7228ccc19"},"runId":"rep_5d53aec8"}
+{"at":"2026-09-19T13:27:18.297Z","type":"step.start","id":"s1","intent":"Enter member number {memberId}","action":"fill"}
+{"at":"2026-09-19T13:27:18.360Z","type":"step.ok","id":"s1"}
+{"at":"2026-09-19T13:27:18.361Z","type":"step.start","id":"s2","intent":"Submit member number search","action":"click"}
+{"at":"2026-09-19T13:27:18.438Z","type":"replay.result","result":{"status":"business_outcome","code":"MEMBER_NOT_FOUND","message":"No member exists with that number.","evidence":"store\\runs\\rep_5d53aec8"}}
