@@ -1,6 +1,6 @@
 // `demo:step-timeout` needs a tighter budget than the shipped capability carries
 // (s2.timeoutMs is 8000; `--inject slow-inquire` only delays the response by 3s).
-// Rather than ask a reviewer to hand-edit the committed artifact and remember to
+// Rather than ask the user to hand-edit the committed artifact and remember to
 // put it back (the pattern the README documents for this exact case), this
 // script does the edit itself, runs the demo, and restores the original bytes
 // in a `finally` — so the artifact on disk is byte-identical before and after,

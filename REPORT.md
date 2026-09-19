@@ -34,8 +34,8 @@ across `src/`. The third is checked by the same file but by a text-pattern match
 `Trace` rather than a structural import check, so it is closer to a tripwire on convention than a
 hard guarantee — it would not catch a renamed alias. All three tests currently pass.
 
-The trade-off taken deliberately: one process, files on disk, no queue, no database. The
-assignment does not reward scaling infrastructure, and `FileStore` is defined behind a narrow
+The trade-off taken deliberately: one process, files on disk, no queue, no database. Scaling
+infrastructure would be premature at this size, and `FileStore` is defined behind a narrow
 interface (`saveCapability`, `loadCapability`, `resolveForTenant`, `recordDrift`,
 `recordReplayAttempt`) so that swapping the backing store for a real database is a change to one
 file, not a rewrite of discovery, replay, or the CLI.
@@ -290,8 +290,8 @@ re-observes the page and re-resolves the target before doing anything else — i
 reading a business outcome off the screen, which was not true until the fix in §3 closed it. If the
 human left the page in a state the target cannot be found on, the step blocks again, now with
 `page_moved_during_handoff` rather than silently trusting whatever is on screen. The operator
-console here is a CLI (`npm run operator -- list | show | resume`) by choice — the assignment permits mocking the
-console — but the handoff mechanics behind it (lease, fencing token, intervention record, retry
+console here is a CLI (`npm run operator -- list | show | resume`) by choice — a graphical console would sit on the same
+seam — but the handoff mechanics behind it (lease, fencing token, intervention record, retry
 from a live re-observation) are real, not simulated, and are what would sit behind a graphical
 console if one were built.
 
@@ -379,7 +379,7 @@ re-observation) faithfully, but it is not a substitute for an actual second oper
 ## 7. Cuts
 
 Left out deliberately, in order of how much would be involved to add: a graphical operator
-console — permitted by the assignment, and the mechanism it would sit on (lease, intervention
+console, since the mechanism it would sit on (lease, intervention
 queue, live browser handle) already exists; a CDP screencast of the same page the operator handle
 already drives is the natural next layer. A desktop `Surface` implementation — designed against the
 same descriptor vocabulary as the web one, but one implementation was enough to prove the seam

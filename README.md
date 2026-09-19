@@ -1,4 +1,4 @@
-# Interface Capability Engine
+# Capability Engine
 
 This system turns a one-time model look at a live web application into a versioned, human-approvable
 capability artifact, then replays that artifact against the application deterministically — unattended,
@@ -270,7 +270,7 @@ would need `framePath: ["main"]` on every step and outcome, which is exactly wha
 | `src/evidence` | Timeline, screenshot, and DOM snapshot recording, with redaction |
 | `src/catalog` | Renders every saved capability (draft and approved) as a callable tool definition |
 | `src/cli` | `discover`, `replay`, `operator`, `catalog`, `approve` commands |
-| `scripts/demo*`, `scripts/demo/` | The `npm run demo`/`demo:*` reviewer-facing scripts (presentation only — they call the same CLIs above) |
+| `scripts/demo*`, `scripts/demo/` | The `npm run demo`/`demo:*` walkthrough scripts (presentation only — they call the same CLIs above) |
 | `target-app` | The deliberately hostile local application used for every demo |
 | `store/capabilities`, `store/bindings` | Committed artifacts: the real discovered capability and its tenant binding |
 | `evidence/` | Committed run evidence from the live demo (redacted; see `REPORT.md` §6) |

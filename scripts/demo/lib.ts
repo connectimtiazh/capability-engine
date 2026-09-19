@@ -1,6 +1,6 @@
 // Presentation-only helpers shared by the named `demo:*` npm scripts and the
 // `npm run demo` orchestrator. Nothing here touches engine behaviour: each helper
-// just shells out to the same CLIs a reviewer would type by hand
+// just shells out to the same CLIs a user would type by hand
 // (`src/cli/replay.ts`, `src/cli/catalog.ts`), using `node` + the local `tsx`
 // loader directly (not `npx`/`npm run`) so it works identically on Windows and
 // POSIX without a shell in the middle.
@@ -28,7 +28,7 @@ function runCli(cliRelPath: string, args: string[], env: NodeJS.ProcessEnv = {})
   return { stdout: result.stdout ?? '', stderr: result.stderr ?? '', status: result.status }
 }
 
-/** Runs `src/cli/replay.ts`, prints exactly what a reviewer typing the long form
+/** Runs `src/cli/replay.ts`, prints exactly what someone typing the long form
  *  would see, and checks the parsed JSON result against what this demo is
  *  supposed to prove. */
 export function demoReplay(

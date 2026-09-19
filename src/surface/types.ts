@@ -28,8 +28,8 @@ export type Resolution =
   | { kind: 'none' }
   | { kind: 'ambiguous'; count: number }
 
-/** The seam a real operator console would sit behind. The console is out of scope
- *  (the brief permits mocking it); the control-transfer model is not. */
+/** The seam a real operator console would sit behind. The console itself is out of
+ *  scope here; the control-transfer model is not. */
 export interface OperatorHandle {
   click(name: string): Promise<void>
   fill(name: string, value: string): Promise<void>

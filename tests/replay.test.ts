@@ -310,7 +310,7 @@ describe('replay through the frameset at /', () => {
   // wait, because WebSurface.observe()'s frame.evaluate() call already blocks
   // until a pending navigation commits, which happens to absorb the delay on
   // whichever step first calls it. That is exactly the "accidental, undesigned"
-  // cushion the reviewer flagged, just via a different mechanism than the
+  // cushion identified in review, just via a different mechanism than the
   // timeout-recovery rung originally suspected. The test that actually
   // distinguishes fixed from broken is
   // tests/surface.test.ts > "the frameset at /" > "a one-shot resolve
