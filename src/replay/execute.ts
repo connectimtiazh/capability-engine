@@ -255,7 +255,23 @@ export async function replay(opts: ReplayOptions): Promise<ReplayResult> {
     }
 
     try {
-      await surface.open(entryPoint)
+      // F49: entry navigation ran unbounded before the first step, so a slow entry
+      // page hung on Playwright's own default instead of producing a reportable
+      // timeout. Bound it by the first step's own declared budget — there is no
+      // other timeout in scope yet — and report a step_timeout at a distinct
+      // "(entry)" position rather than folding it into the generic surface_error
+      // the outer catch below would otherwise produce.
+      try {
+        await surface.open(entryPoint, { timeoutMs: capability.steps[0]?.timeoutMs })
+      } catch (e) {
+        if (e instanceof SurfaceTimeoutError) {
+          return await fail(
+            '(entry)', `the entry page to load within ${capability.steps[0]?.timeoutMs}ms`,
+            String(e), 'step_timeout',
+          )
+        }
+        throw e
+      }
 
       for (let i = 0; i < capability.steps.length; i++) {
         const step = capability.steps[i]!

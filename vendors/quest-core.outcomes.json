@@ -12,5 +12,19 @@
     "message": "This member requires elevated entitlements.",
     "terminal": true,
     "when": { "route": "/member/inquire" }
+  },
+  {
+    "code": "MEMBER_NOT_FOUND",
+    "text": "No record found",
+    "message": "No member exists with that number.",
+    "terminal": true,
+    "when": { "route": "/member/inquire", "framePath": ["main"] }
+  },
+  {
+    "code": "ACCOUNT_RESTRICTED",
+    "text": "Access restricted",
+    "message": "This member requires elevated entitlements.",
+    "terminal": true,
+    "when": { "route": "/member/inquire", "framePath": ["main"] }
   }
 ]

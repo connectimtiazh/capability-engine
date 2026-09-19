@@ -115,12 +115,24 @@ export class WebSurface {
     return out
   }
 
+  /** F49: the entry navigation ran unbounded, so a slow entry page hung on
+   *  Playwright's own default instead of producing a timeout this run could report.
+   *  Threaded the same way `act()` threads a step budget into Playwright's own
+   *  `timeout` option: on overrun Playwright actually aborts the navigation, so by
+   *  the time this throws nothing is still in flight. */
   async open(url: string, budget?: Budget): Promise<void> {
     this.check('navigate', url)
-    await this.page.goto(url, {
-      waitUntil: 'domcontentloaded',
-      ...(budget?.timeoutMs !== undefined ? { timeout: budget.timeoutMs } : {}),
-    })
+    try {
+      await this.page.goto(url, {
+        waitUntil: 'domcontentloaded',
+        ...(budget?.timeoutMs !== undefined ? { timeout: budget.timeoutMs } : {}),
+      })
+    } catch (e) {
+      if (budget?.timeoutMs !== undefined && /timeout/i.test(String(e))) {
+        throw new SurfaceTimeoutError(`open did not complete within ${budget.timeoutMs}ms: ${String(e)}`)
+      }
+      throw e
+    }
   }
 
   async observe(): Promise<Observation> {
@@ -168,6 +180,16 @@ export class WebSurface {
   private frameFor(path: string[]): Frame {
     const hit = this.frames().find((f) => f.path.join('/') === path.join('/'))
     return hit?.frame ?? this.page.mainFrame()
+  }
+
+  /** F48: the one way to learn a specific frame's own URL. Inside a frameset the
+   *  top-level document (page.url()) never changes — only the named child frame
+   *  navigates — so a route-scoped outcome must be checked against the frame it
+   *  was authored against, not the page. Falls back to the page's main frame (via
+   *  frameFor's own fallback) when no frame with that name exists, which is exactly
+   *  right for a capability recorded against a direct, unframed entry point. */
+  frameUrl(path: string[]): string {
+    return this.frameFor(path).url()
   }
 
   /** Bullet 2 of the timeout brief: the remaining budget is pushed INTO Playwright's

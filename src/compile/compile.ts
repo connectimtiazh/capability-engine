@@ -21,7 +21,17 @@ interface OutcomeRegistryEntry {
 function loadOutcomeRegistry(vendorProduct: string): BusinessOutcome[] {
   const path = `vendors/${vendorProduct}.outcomes.json`
   if (!existsSync(path)) return []
-  const entries = JSON.parse(readFileSync(path, 'utf8')) as OutcomeRegistryEntry[]
+  const raw = readFileSync(path, 'utf8')
+  let entries: OutcomeRegistryEntry[]
+  try {
+    entries = JSON.parse(raw) as OutcomeRegistryEntry[]
+  } catch (e) {
+    // A bare JSON.parse crash here surfaces as a raw stack trace pointing at
+    // compile.ts, telling a human nothing about which vendor file they broke.
+    // Name the file and the underlying parse problem instead.
+    const reason = e instanceof Error ? e.message : String(e)
+    throw new Error(`malformed outcome registry ${path}: ${reason}`)
+  }
   return entries.map((e) => ({
     code: e.code,
     detect: { kind: 'text-present', text: e.text, framePath: e.when?.framePath } as Checkpoint,

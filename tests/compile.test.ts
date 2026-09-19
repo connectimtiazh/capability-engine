@@ -1,4 +1,5 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, afterEach } from 'vitest'
+import { writeFileSync, unlinkSync, existsSync } from 'node:fs'
 import { compile } from '../src/compile/compile.js'
 import { CapabilitySchema } from '../src/capability/schema.js'
 import type { Trace } from '../src/discover/loop.js'
@@ -165,6 +166,20 @@ describe('compile', () => {
   it('compiles with zero business outcomes when the vendor has no registry file', () => {
     const c = compile(trace, { key: 'unregistered-vendor/some.capability', params: { memberId: '40021' } })
     expect(c.businessOutcomes).toEqual([])
+  })
+
+  describe('a malformed vendor outcome registry', () => {
+    const badPath = 'vendors/__wave3-malformed-test-vendor.outcomes.json'
+
+    afterEach(() => {
+      if (existsSync(badPath)) unlinkSync(badPath)
+    })
+
+    it('names the file and the parse problem instead of a raw JSON.parse stack', () => {
+      writeFileSync(badPath, '{ this is not valid JSON', 'utf8')
+      expect(() => compile(trace, { key: '__wave3-malformed-test-vendor/some.capability', params: { memberId: '40021' } }))
+        .toThrow(/__wave3-malformed-test-vendor\.outcomes\.json/)
+    })
   })
 
   it('infers a digits-only pattern from an all-digits sample, not the sample length', () => {

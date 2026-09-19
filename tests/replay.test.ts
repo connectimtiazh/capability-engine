@@ -230,3 +230,93 @@ describe('per-step timeout budgets', () => {
     if (r.status === 'success') expect(r.outputs.savingsBalance).toBe(1284.55)
   }, 60_000)
 })
+
+// The frameset at "/" had never been exercised end to end: every other test in
+// this file enters /member/search directly, so framePath was always [] and
+// route-scoped outcomes never had to survive a top-level URL that stays put while
+// an inner frame navigates. This is the F48 test.
+describe('replay through the frameset at /', () => {
+  const REF_FRAMESET = 'quest-core/member.savings_balance.frameset@1.0.0'
+  const TENANT_FRAMESET = 'firstvalley-cu-frameset'
+
+  const framesetTrace = (): Trace => ({
+    goal: 'look up a member savings balance through the frameset', runId: 'disc_frameset_test',
+    entryPoint: base + '/', model: 'test-model',
+    steps: [
+      { intent: 'Type the member number', action: 'fill', resolvedVia: 'primary', value: '40021',
+        target: { role: 'textbox', name: 'Member No.', framePath: ['main'], fallbacks: [] },
+        urlAfter: base + '/member/search', textAfter: 'Member No.' },
+      { intent: 'Submit the inquiry', action: 'click', resolvedVia: 'primary',
+        target: { role: 'button', name: 'Inquire', framePath: ['main'], fallbacks: [] },
+        urlAfter: base + '/member/inquire', textAfter: 'Member A. Whitfield (40021)\nShare Balance\n1284.55' },
+    ],
+    extracted: {
+      savingsBalance: {
+        value: 'Share Balance 1284.55', as: 'number',
+        from: {
+          role: 'table', name: '', framePath: ['main'], fallbacks: [],
+          anchor: { kind: 'table-cell', rowHeader: 'Share Balance', offset: { col: 1 } },
+        },
+      },
+    },
+    observedOutcomes: [], finalText: 'Member A. Whitfield (40021)\nShare Balance\n1284.55',
+  })
+
+  beforeEach(async () => {
+    const store = new FileStore(dir)
+    const cap = compile(framesetTrace(), { key: 'quest-core/member.savings_balance.frameset', params: { memberId: '40021' } })
+    await store.saveCapability({ ...cap, approval: { ...cap.approval, state: 'approved' } })
+    await store.saveBinding({
+      tenant: TENANT_FRAMESET, capability: REF_FRAMESET, entryPoint: base + '/',
+      overrides: {}, driftLog: [],
+    })
+  })
+
+  const runFrameset = (params: Record<string, unknown>) =>
+    replay({ ref: REF_FRAMESET, tenant: TENANT_FRAMESET, params, storeRoot: dir, headless: true, policyOverride: policy })
+
+  it('resolves and fills Member No. inside "main", clicks Inquire, and extracts the balance', async () => {
+    const r = await runFrameset({ memberId: '40021' })
+    expect(r.status).toBe('success')
+    if (r.status === 'success') expect(r.outputs.savingsBalance).toBe(1284.55)
+  }, 60_000)
+
+  it('F48: returns business_outcome/MEMBER_NOT_FOUND for a lookup made through the frameset', async () => {
+    // Before this fix, detectBusinessOutcome compared the outcome's declared route
+    // against the TOP-LEVEL page URL, which stays at "/" for the whole run here —
+    // the "main" child frame is the one that actually navigates to
+    // /member/inquire. Confirmed by hand that reverting the frame-aware pathname
+    // comparison in src/replay/outcomes.ts back to `pathnameOf(surface.url())`
+    // turns this test red (status: 'failed', not 'business_outcome') before
+    // restoring the fix — see wave3-report.md.
+    const r = await runFrameset({ memberId: '99999' })
+    expect(r.status).toBe('business_outcome')
+    if (r.status === 'business_outcome') expect(r.code).toBe('MEMBER_NOT_FOUND')
+  }, 60_000)
+})
+
+describe('F49: the entry navigation is bounded by the first step\'s timeout', () => {
+  it('fails with step_timeout at "(entry)" when the entry page overruns a tight first-step budget', async () => {
+    const store = new FileStore(dir)
+    const c = await store.loadCapability(REF)
+    const steps = c.steps.map((s, i) => (i === 0 ? { ...s, timeoutMs: 200 } : s))
+    await store.saveCapability({ ...c, steps, approval: { ...c.approval, state: 'approved' } })
+
+    const r = await run({ memberId: '40021' }, base + '/member/search?inject=slow')
+    expect(r.status).toBe('failed')
+    if (r.status === 'failed') {
+      expect(r.class).toBe('step_timeout')
+      expect(r.step).toBe('(entry)')
+    }
+  }, 15_000)
+
+  it('still succeeds through a normal (fast) entry page with the same tight first-step budget', async () => {
+    const store = new FileStore(dir)
+    const c = await store.loadCapability(REF)
+    const steps = c.steps.map((s, i) => (i === 0 ? { ...s, timeoutMs: 200 } : s))
+    await store.saveCapability({ ...c, steps, approval: { ...c.approval, state: 'approved' } })
+
+    const r = await run({ memberId: '40021' })
+    expect(r.status).toBe('success')
+  }, 15_000)
+})
