@@ -4,13 +4,13 @@ import { FileStore } from '../capability/store.js'
 import type { Capability, ReplayResult, Step } from '../capability/schema.js'
 import { loadPolicy, classifyAction, type PolicyConfig } from '../policy/allowlist.js'
 import { redactParams } from '../policy/redact.js'
-import { WebSurface, PolicyError } from '../surface/web.js'
+import { WebSurface, PolicyError, SurfaceTimeoutError } from '../surface/web.js'
 import type { OperatorHandle } from '../surface/types.js'
 import { Recorder } from '../evidence/recorder.js'
 import { LeaseStore } from '../control/lease.js'
 import { InterventionStore, type Intervention } from '../control/interventions.js'
 import { detectBusinessOutcome } from './outcomes.js'
-import { applyRecovery } from './recovery.js'
+import { applyRecovery, type TimeoutRungState } from './recovery.js'
 import { extractAnchored } from './extract.js'
 
 export interface ReplayOptions {
@@ -129,6 +129,15 @@ export async function replay(opts: ReplayOptions): Promise<ReplayResult> {
     }
 
     const outputs: Record<string, unknown> = {}
+
+    // Per-step timeout-rung attempt counts, keyed by step id and kept for the whole
+    // run so a step revisited via `i--` (a block/resume retry) does not get a fresh
+    // `max` budget it hasn't earned. `remaining` is the one place a deadline turns
+    // into a Playwright-shaped budget: never negative, so a step whose clock has
+    // already run out still hands surface calls a legal (zero) timeout rather than
+    // a value that would flip Playwright's "no timeout" meaning.
+    const timeoutAttemptsByStep = new Map<string, TimeoutRungState>()
+    const remaining = (deadline: number): number => Math.max(0, deadline - Date.now())
 
     let interventionsUsed = 0
     let approvedStep: string | null = null   // one-shot human approval, see below
@@ -250,6 +259,15 @@ export async function replay(opts: ReplayOptions): Promise<ReplayResult> {
 
       for (let i = 0; i < capability.steps.length; i++) {
         const step = capability.steps[i]!
+        // F41: the artifact declares `step.timeoutMs` per step; this is where it
+        // finally gets read. Every surface call made while working on this step —
+        // resolve, act, checkpoint, extract — is bounded by what remains of it.
+        const deadline = Date.now() + step.timeoutMs
+        let timeoutState = timeoutAttemptsByStep.get(step.id)
+        if (!timeoutState) {
+          timeoutState = { count: 0 }
+          timeoutAttemptsByStep.set(step.id, timeoutState)
+        }
         await rec.event('step.start', { id: step.id, intent: step.intent, action: step.action })
 
         // A declared outcome can appear at any point, so it is checked before each
@@ -284,7 +302,18 @@ export async function replay(opts: ReplayOptions): Promise<ReplayResult> {
           if (!anchor || !step.extract) {
             return await fail(step.id, 'an extraction anchor (a label beside the value)', 'extract step has no anchor', 'checkpoint_failed')
           }
-          const text = await surface.readText(step.target!)
+          let text: string
+          try {
+            text = await surface.readText(step.target!, { timeoutMs: remaining(deadline) })
+          } catch (e) {
+            if (e instanceof SurfaceTimeoutError) {
+              return await fail(
+                step.id, `a ${step.extract.as} beside "${anchor.rowHeader}" within ${step.timeoutMs}ms`,
+                String(e), 'step_timeout',
+              )
+            }
+            throw e
+          }
           const got = extractAnchored(text, anchor.rowHeader, step.extract.as)
           if (!got.ok) {
             return await fail(step.id, `a ${step.extract.as} beside "${anchor.rowHeader}"`, got.observed, 'checkpoint_failed')
@@ -294,7 +323,7 @@ export async function replay(opts: ReplayOptions): Promise<ReplayResult> {
           continue
         }
 
-        let resolution = await surface.resolve(step.target!)
+        let resolution = await surface.resolve(step.target!, { timeoutMs: remaining(deadline) })
 
         // C1 fix: this is the re-establishment the guard above is waiting for. A
         // handback does not make the screen trustworthy again by itself — only
@@ -316,22 +345,43 @@ export async function replay(opts: ReplayOptions): Promise<ReplayResult> {
           }
         }
 
-        if (resolution.kind === 'none') {
-          const recovered = await applyRecovery(surface, step.onError, { entryPoint })
-          if (recovered.kind !== 'not-applicable') {
-            // C4: only `dialog-present`/`session-expired` actually cleared something;
-            // the bare `timeout` rung just waited, so it is logged as a wait, not a
-            // recovery (see evidence/rep_5ecd18a5, where this line previously claimed
-            // a recovery for a rung that fixed nothing).
-            await rec.event(recovered.kind === 'recovered' ? 'step.recovered' : 'step.waited', { id: step.id, rung: recovered.rung })
-            const again = await detectBusinessOutcome(surface, capability.businessOutcomes)
-            if (again) {
-              const r: ReplayResult = { status: 'business_outcome', code: again.code, message: again.message ?? again.code, evidence: rec.dir }
-              await store.recordReplayAttempt(opts.ref, true, null)
-              return r
-            }
-            resolution = await surface.resolve(step.target!)
+        // Bounded resolve-recovery: keep applying whatever the step declares while
+        // the target still hasn't resolved, but never past this step's deadline and
+        // never past the `timeout` rung's own `max` — `applyRecovery` enforces the
+        // latter internally via `timeoutState`, this loop enforces the former.
+        while (resolution.kind === 'none' && Date.now() < deadline) {
+          const recovered = await applyRecovery(surface, step.onError, { entryPoint, deadline }, timeoutState)
+          if (recovered.kind === 'not-applicable') break
+          // C4: only `dialog-present`/`session-expired` actually cleared something;
+          // the bare `timeout` rung just waited, so it is logged as a wait, not a
+          // recovery (see evidence/rep_5ecd18a5, where this line previously claimed
+          // a recovery for a rung that fixed nothing).
+          await rec.event(recovered.kind === 'recovered' ? 'step.recovered' : 'step.waited', { id: step.id, rung: recovered.rung })
+          const again = await detectBusinessOutcome(surface, capability.businessOutcomes)
+          if (again) {
+            const r: ReplayResult = { status: 'business_outcome', code: again.code, message: again.message ?? again.code, evidence: rec.dir }
+            await store.recordReplayAttempt(opts.ref, true, null)
+            return r
           }
+          const budget = remaining(deadline)
+          if (budget <= 0) break
+          resolution = await surface.resolve(step.target!, { timeoutMs: budget })
+        }
+
+        if (resolution.kind === 'none' && Date.now() >= deadline) {
+          // The target never showed up and the step's own clock ran out while
+          // recovery was still trying. This is a distinct failure from the
+          // "unrecognised screen" case below: the run never got a chance to act, so
+          // treating it as "acted and got the wrong screen" would misdiagnose it —
+          // and blocking for a human here would wait forever on a control that was
+          // never going to appear before the deadline regardless of how long anyone
+          // waits.
+          return await fail(
+            step.id,
+            `${step.target!.role} named "${step.target!.name ?? step.target!.labelText ?? ''}" within ${step.timeoutMs}ms`,
+            `not resolved after ${timeoutState.count} timeout-recovery attempt(s)`,
+            'step_timeout',
+          )
         }
 
         if (resolution.kind === 'ambiguous') {
@@ -379,8 +429,17 @@ export async function replay(opts: ReplayOptions): Promise<ReplayResult> {
         }
         const oneShot = approvedStep === step.id
         if (oneShot) surface.setContext({ approvalState: 'approved' })
+        // `cp` starts pessimistic: if the action itself times out, there is no
+        // checkpoint read to attempt, and the recovery loop below is exactly the
+        // same "wait, maybe the screen catches up" mechanism whether it was the
+        // checkpoint that failed or the action that never finished.
+        let cp: { ok: boolean; observed: string } = { ok: false, observed: '' }
+        let actionTimedOut = false
         try {
-          await surface.act(step.action, resolution.node, valueFor(step, opts.params as Record<string, unknown>))
+          await surface.act(
+            step.action, resolution.node, valueFor(step, opts.params as Record<string, unknown>),
+            { timeoutMs: remaining(deadline) },
+          )
         } catch (e) {
           if (e instanceof PolicyError && e.verdict === 'HOLD') {
             // This is the C1 site: an unapproved mutation (e.g. the click on a still-
@@ -395,7 +454,16 @@ export async function replay(opts: ReplayOptions): Promise<ReplayResult> {
           if (e instanceof PolicyError) {
             return await fail(step.id, 'an action permitted by policy', e.reason, 'policy_denied')
           }
-          throw e
+          if (e instanceof SurfaceTimeoutError) {
+            // Bullet 2: the budget was pushed into Playwright's own timeout, so by
+            // the time this is caught the action has actually stopped — there is
+            // nothing still running to worry about, only a checkpoint that never
+            // got a chance to hold.
+            actionTimedOut = true
+            cp = { ok: false, observed: `action ${step.action} did not complete within ${step.timeoutMs}ms: ${String(e)}` }
+          } else {
+            throw e
+          }
         } finally {
           if (oneShot) {
             surface.setContext({ approvalState: capability.approval.state })
@@ -403,8 +471,11 @@ export async function replay(opts: ReplayOptions): Promise<ReplayResult> {
           }
         }
 
-        let cp = await surface.checkpointHolds(step.checkpoint, resolveInput)
-        if (!cp.ok) {
+        if (!actionTimedOut) {
+          cp = await surface.checkpointHolds(step.checkpoint, resolveInput, { timeoutMs: remaining(deadline) })
+        }
+
+        while (!cp.ok && Date.now() < deadline) {
           const outcomeNow = await detectBusinessOutcome(surface, capability.businessOutcomes)
           if (outcomeNow) {
             const r: ReplayResult = { status: 'business_outcome', code: outcomeNow.code, message: outcomeNow.message ?? outcomeNow.code, evidence: rec.dir }
@@ -412,15 +483,20 @@ export async function replay(opts: ReplayOptions): Promise<ReplayResult> {
             await store.recordReplayAttempt(opts.ref, true, null)
             return r
           }
-          const recovered = await applyRecovery(surface, step.onError, { entryPoint })
-          if (recovered.kind !== 'not-applicable') {
-            await rec.event(recovered.kind === 'recovered' ? 'step.recovered' : 'step.waited', { id: step.id, rung: recovered.rung })
-            cp = await surface.checkpointHolds(step.checkpoint, resolveInput)
-          }
+          const recovered = await applyRecovery(surface, step.onError, { entryPoint, deadline }, timeoutState)
+          if (recovered.kind === 'not-applicable') break
+          await rec.event(recovered.kind === 'recovered' ? 'step.recovered' : 'step.waited', { id: step.id, rung: recovered.rung })
+          const budget = remaining(deadline)
+          if (budget <= 0) break
+          cp = await surface.checkpointHolds(step.checkpoint, resolveInput, { timeoutMs: budget })
         }
 
         if (!cp.ok) {
-          return await fail(step.id, JSON.stringify(step.checkpoint), cp.observed, 'checkpoint_failed')
+          // "Never got there in time" (step_timeout) is a different diagnosis from
+          // "got somewhere wrong" (checkpoint_failed): the deadline is what decides
+          // which one this run reports.
+          const cls = Date.now() >= deadline ? 'step_timeout' : 'checkpoint_failed'
+          return await fail(step.id, JSON.stringify(step.checkpoint), cp.observed, cls)
         }
 
         await rec.event('step.ok', { id: step.id })

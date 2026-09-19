@@ -153,3 +153,80 @@ describe('replay', () => {
     expect(c.approval.replayStats.successes).toBe(0)
   }, 60_000)
 })
+
+describe('per-step timeout budgets', () => {
+  // A short step budget against the target app's injected slow response, on the
+  // mid-flow "click Inquire" step (s2) rather than the initial page load — see
+  // target-app/server.ts's searchForm(slowInquire) for why the inject has to be
+  // carried on the form's own action to land on the POST.
+  const tightenStepTwo = async (): Promise<void> => {
+    const store = new FileStore(dir)
+    const c = await store.loadCapability(REF)
+    const steps = c.steps.map((s) =>
+      s.id === 's2'
+        ? { ...s, timeoutMs: 700, onError: [{ when: 'timeout' as const, do: 'retry' as const, max: 2, backoffMs: 400 }] }
+        : s,
+    )
+    await store.saveCapability({ ...c, steps })
+  }
+
+  it('fails with step_timeout, naming the step, when a mid-flow step exceeds its budget', async () => {
+    await tightenStepTwo()
+    const r = await run({ memberId: '40021' }, base + '/member/search?inject=slow-inquire')
+
+    expect(r.status).toBe('failed')
+    if (r.status !== 'failed') return
+    expect(r.class).toBe('step_timeout')
+    expect(r.step).toBe('s2')
+    expect(r.expected).toBeTruthy()
+    expect(r.observed).toBeTruthy()
+  }, 60_000)
+
+  // A click that itself never returns in time (the mid-flow case above) has
+  // nothing left to recover into: Playwright's own click timeout already fired,
+  // and the action either fired or didn't — there is no safe "wait and recheck"
+  // for an ambiguous half-done click. The `timeout` rung's wait-and-recheck loop
+  // is for the other case: an action that already returned, or a target that
+  // simply hasn't appeared yet, where re-observing the same screen after a beat
+  // is safe. This drives that path directly with a target that never appears, so
+  // the count of retries is deterministic instead of riding on server timing.
+  it('retries the timeout recovery rung exactly `max` times and no more, then fails as step_timeout', async () => {
+    const store = new FileStore(dir)
+    const c = await store.loadCapability(REF)
+    const steps = c.steps.map((s) =>
+      s.id === 's2'
+        ? {
+            ...s,
+            target: { role: 'button' as const, name: 'This Button Does Not Exist', framePath: [], fallbacks: [] },
+            timeoutMs: 500,
+            onError: [{ when: 'timeout' as const, do: 'retry' as const, max: 2, backoffMs: 300 }],
+          }
+        : s,
+    )
+    await store.saveCapability({ ...c, steps })
+
+    const r = await run({ memberId: '40021' })
+    expect(r.status).toBe('failed')
+    if (r.status === 'failed') {
+      expect(r.class).toBe('step_timeout')
+      expect(r.step).toBe('s2')
+      expect(r.expected).toBeTruthy()
+      expect(r.observed).toBeTruthy()
+    }
+
+    const { readFile } = await import('node:fs/promises')
+    const timeline = (await readFile(join(r.evidence, 'timeline.jsonl'), 'utf8'))
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => JSON.parse(l) as { type: string; id?: string; rung?: string })
+    const waited = timeline.filter((e) => e.type === 'step.waited' && e.id === 's2' && e.rung === 'timeout')
+    expect(waited.length).toBe(2)
+  }, 60_000)
+
+  it('still succeeds on a normal fast run with the same tightened step budget', async () => {
+    await tightenStepTwo()
+    const r = await run({ memberId: '40021' })
+    expect(r.status).toBe('success')
+    if (r.status === 'success') expect(r.outputs.savingsBalance).toBe(1284.55)
+  }, 60_000)
+})

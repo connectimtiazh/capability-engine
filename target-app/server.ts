@@ -2,7 +2,7 @@ import express from 'express'
 import type { Server } from 'node:http'
 import { lookup, AS_OF } from './data.js'
 
-type Inject = 'motd' | 'session-timeout' | 'unknown-dialog' | 'slow' | undefined
+type Inject = 'motd' | 'session-timeout' | 'unknown-dialog' | 'slow' | 'slow-inquire' | undefined
 
 const chrome = (body: string) => `<html><head><title>QuestCore 8.3</title></head>
 <body bgcolor="#EFEFEF"><table width="100%" cellpadding="4" cellspacing="0" border="0">
@@ -17,8 +17,14 @@ const dialog = (title: string, text: string) => `
     <input type="submit" value="Acknowledge"></form></td></tr>
 </table>`
 
-const searchForm = `
-<form method="post" action="/member/inquire">
+// `slowInquire` mirrors `?inject=slow` but on the mid-flow POST rather than the
+// initial GET: the form's own action carries the query string forward, so a
+// capability's "click Inquire" step — not its initial page load — is what hits
+// the delayed response. That is what a per-step timeoutMs actually needs to be
+// tested against: a step budget, not the one-time page navigation before any
+// step runs.
+const searchForm = (slowInquire?: boolean) => `
+<form method="post" action="/member/inquire${slowInquire ? '?inject=slow' : ''}">
 <table cellpadding="3" cellspacing="0" border="0">
   <tr>
     <td nowrap><font size="2">Member No.</font></td>
@@ -61,22 +67,23 @@ export function createServer(): Server {
     if (inject === 'unknown-dialog') {
       return res.type('html').send(chrome(dialog('Compliance Notice', 'Quarterly attestation is now due for this workstation.')))
     }
-    res.type('html').send(chrome(searchForm))
+    res.type('html').send(chrome(searchForm(inject === 'slow-inquire')))
   })
 
-  app.post('/member/inquire', (req, res) => {
+  app.post('/member/inquire', async (req, res) => {
+    if ((req.query.inject as Inject) === 'slow') await new Promise((r) => setTimeout(r, 3000))
     const raw = (req.body['ctl00$mbrNo'] ?? '') as string
     const memberId = raw.trim()
     const result = lookup(memberId)
 
     if (result.kind === 'not_found') {
       return res.type('html').send(chrome(
-        `<font size="2" color="#AA0000"><b>No record found</b></font><br><br>${searchForm}`))
+        `<font size="2" color="#AA0000"><b>No record found</b></font><br><br>${searchForm()}`))
     }
     if (result.kind === 'restricted') {
       return res.type('html').send(chrome(
         `<font size="2" color="#AA0000"><b>Access restricted</b></font>
-         <br><font size="1">This member requires elevated entitlements.</font><br><br>${searchForm}`))
+         <br><font size="1">This member requires elevated entitlements.</font><br><br>${searchForm()}`))
     }
 
     const m = result.member
@@ -85,7 +92,7 @@ export function createServer(): Server {
   <tr><td nowrap><font size="2">Member</font></td><td><font size="2">${m.name} (${m.memberId})</font></td></tr>
   <tr><td nowrap><font size="2">Share Balance</font></td><td><font size="2">${m.savingsBalance.toFixed(2)}</font></td></tr>
   <tr><td nowrap><font size="2">As Of</font></td><td><font size="2">${AS_OF}</font></td></tr>
-</table><br>${searchForm}`))
+</table><br>${searchForm()}`))
   })
 
   return app as unknown as Server & express.Express

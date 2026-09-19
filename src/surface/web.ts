@@ -5,10 +5,17 @@ import { gate } from '../policy/gate.js'
 import type { PolicyConfig } from '../policy/allowlist.js'
 import { redactValue } from '../policy/redact.js'
 import { resolveDescriptor } from './resolver.js'
-import { PolicyError, type A11yNode, type FrameSnapshot, type Observation, type OperatorHandle, type Resolution } from './types.js'
+import { PolicyError, SurfaceTimeoutError, type A11yNode, type FrameSnapshot, type Observation, type OperatorHandle, type Resolution } from './types.js'
 
 export type { Observation, A11yNode, Resolution, FrameSnapshot, OperatorHandle } from './types.js'
-export { PolicyError } from './types.js'
+export { PolicyError, SurfaceTimeoutError } from './types.js'
+
+/** A step's remaining time budget, threaded through to whichever surface call is
+ *  bounding it. Optional everywhere: omitting it preserves Playwright's own
+ *  default timeout, so every call site that predates budgets keeps working. */
+export interface Budget {
+  timeoutMs?: number
+}
 
 const EXTRACT = `() => {
   const out = []
@@ -108,9 +115,12 @@ export class WebSurface {
     return out
   }
 
-  async open(url: string): Promise<void> {
+  async open(url: string, budget?: Budget): Promise<void> {
     this.check('navigate', url)
-    await this.page.goto(url, { waitUntil: 'domcontentloaded' })
+    await this.page.goto(url, {
+      waitUntil: 'domcontentloaded',
+      ...(budget?.timeoutMs !== undefined ? { timeout: budget.timeoutMs } : {}),
+    })
   }
 
   async observe(): Promise<Observation> {
@@ -133,8 +143,25 @@ export class WebSurface {
     return { url: this.page.url(), title: await this.page.title(), frames }
   }
 
-  async resolve(t: TargetDescriptor): Promise<Resolution> {
+  /** `observe()` is built on `frame.evaluate()`, which Playwright gives no timeout
+   *  option for — there is nothing to race here, so the budget is checked before
+   *  the call (skip it outright once the step's clock has already run out) and
+   *  after it (catch a hang that somehow outran the budget anyway). Every read of
+   *  the page — resolve, checkpointHolds, readText — goes through this one gate. */
+  private async observeBudgeted(budget?: Budget): Promise<Observation> {
+    if (budget?.timeoutMs !== undefined && budget.timeoutMs <= 0) {
+      throw new SurfaceTimeoutError('step budget exhausted before observation')
+    }
+    const start = Date.now()
     const obs = await this.observe()
+    if (budget?.timeoutMs !== undefined && Date.now() - start > budget.timeoutMs) {
+      throw new SurfaceTimeoutError('step budget exhausted during observation')
+    }
+    return obs
+  }
+
+  async resolve(t: TargetDescriptor, budget?: Budget): Promise<Resolution> {
+    const obs = await this.observeBudgeted(budget)
     return resolveDescriptor(obs.frames.flatMap((f) => f.nodes), t)
   }
 
@@ -143,22 +170,39 @@ export class WebSurface {
     return hit?.frame ?? this.page.mainFrame()
   }
 
-  async act(action: ActionKind, node: A11yNode, value?: string): Promise<void> {
+  /** Bullet 2 of the timeout brief: the remaining budget is pushed INTO Playwright's
+   *  own `timeout` option on the click/fill/selectOption call, never raced from out
+   *  here. Racing would leave the real action running in the browser after this
+   *  function returns a timeout — worse than no timeout, because now something is
+   *  in flight nobody is tracking. Playwright's own timeout actually aborts the
+   *  action, so when it fires the action really has stopped. That native error is
+   *  wrapped as SurfaceTimeoutError so replay has one shape to catch regardless of
+   *  which Playwright call (or action) produced it. */
+  async act(action: ActionKind, node: A11yNode, value?: string, budget?: Budget): Promise<void> {
     this.check(action, this.page.url())
     const frame = this.frameFor(node.framePath)
     const loc = frame.locator(`[data-cap-ref="${node.ref}"]`)
-    if (action === 'click') await loc.click()
-    else if (action === 'fill') await loc.fill(value ?? '')
-    else if (action === 'select') await loc.selectOption(value ?? '')
-    else if (action === 'dismiss') await loc.click()
-    else throw new Error(`act() cannot perform ${action}`)
+    const opts = budget?.timeoutMs !== undefined ? { timeout: budget.timeoutMs } : undefined
+    try {
+      if (action === 'click') await loc.click(opts)
+      else if (action === 'fill') await loc.fill(value ?? '', opts)
+      else if (action === 'select') await loc.selectOption(value ?? '', opts)
+      else if (action === 'dismiss') await loc.click(opts)
+      else throw new Error(`act() cannot perform ${action}`)
+    } catch (e) {
+      if (budget?.timeoutMs !== undefined && /timeout/i.test(String(e))) {
+        throw new SurfaceTimeoutError(`${action} did not complete within ${budget.timeoutMs}ms: ${String(e)}`)
+      }
+      throw e
+    }
   }
 
   async checkpointHolds(
     c: Checkpoint,
     resolveInput?: (inputName: string) => string | undefined,
+    budget?: Budget,
   ): Promise<{ ok: boolean; observed: string }> {
-    const obs = await this.observe()
+    const obs = await this.observeBudgeted(budget)
     const scope = (path?: string[]) =>
       path ? obs.frames.filter((f) => f.path.join('/') === path.join('/')) : obs.frames
 
@@ -208,9 +252,9 @@ export class WebSurface {
     }
   }
 
-  async readText(t: TargetDescriptor): Promise<string> {
+  async readText(t: TargetDescriptor, budget?: Budget): Promise<string> {
     this.check('read', this.page.url())
-    const obs = await this.observe()
+    const obs = await this.observeBudgeted(budget)
     const frames = obs.frames.filter((f) => f.path.join('/') === t.framePath.join('/'))
     return frames.map((f) => f.text).join('\n')
   }

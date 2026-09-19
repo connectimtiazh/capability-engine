@@ -152,7 +152,7 @@ export const ReplayResultSchema = z.discriminatedUnion('status', [
   z.object({
     status: z.literal('failed'),
     step: z.string(), expected: z.string(), observed: z.string(),
-    class: z.enum(['resolver_not_found', 'resolver_ambiguous', 'checkpoint_failed', 'policy_denied', 'surface_error', 'input_invalid']),
+    class: z.enum(['resolver_not_found', 'resolver_ambiguous', 'checkpoint_failed', 'policy_denied', 'surface_error', 'input_invalid', 'step_timeout']),
     evidence: z.string(),
   }),
 ])

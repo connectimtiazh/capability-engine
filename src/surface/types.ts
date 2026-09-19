@@ -46,3 +46,17 @@ export class PolicyError extends Error {
     this.name = 'PolicyError'
   }
 }
+
+/** Raised when a step's remaining timeout budget is exhausted by a surface
+ *  operation — either an underlying Playwright action that timed out (thrown with
+ *  its own message, wrapped here so callers have one shape to check regardless of
+ *  which Playwright call produced it), or one of the operations that cannot take a
+ *  Playwright timeout (evaluate-based observation), where the budget is checked
+ *  before and after instead. Never raced: by the time this is thrown, the
+ *  operation it names has actually stopped. */
+export class SurfaceTimeoutError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'SurfaceTimeoutError'
+  }
+}
