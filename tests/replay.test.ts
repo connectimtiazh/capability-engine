@@ -190,7 +190,20 @@ describe('per-step timeout budgets', () => {
   // simply hasn't appeared yet, where re-observing the same screen after a beat
   // is safe. This drives that path directly with a target that never appears, so
   // the count of retries is deterministic instead of riding on server timing.
-  it('retries the timeout recovery rung exactly `max` times and no more, then fails as step_timeout', async () => {
+  //
+  // F51: `timeoutMs`/`backoffMs` are chosen so `max` exhausts LONG before the
+  // step's own deadline does (2 * 50ms = 100ms of enforced waiting against a
+  // 3000ms budget). That gap is what makes this test able to fail: with `max`
+  // enforced, recovery gives up at 2 waits and the run blocks on the still-
+  // unresolved target with ~2900ms of budget left over. If enforcement were
+  // ever removed, the same "target never appears" condition would make the
+  // rung fire roughly every 50ms until the full 3000ms deadline was consumed —
+  // dozens of `step.waited` events and a `step_timeout` result instead of a
+  // `blocked` one. A test whose numbers let `max` and the deadline expire at
+  // the same moment (as an earlier version of this test did) cannot tell those
+  // two outcomes apart; this one can, and was confirmed red with the `max`
+  // check deleted before being restored — see wave2-report.md.
+  it('retries the timeout recovery rung exactly `max` times and no more, even though the step still has time left', async () => {
     const store = new FileStore(dir)
     const c = await store.loadCapability(REF)
     const steps = c.steps.map((s) =>
@@ -198,21 +211,17 @@ describe('per-step timeout budgets', () => {
         ? {
             ...s,
             target: { role: 'button' as const, name: 'This Button Does Not Exist', framePath: [], fallbacks: [] },
-            timeoutMs: 500,
-            onError: [{ when: 'timeout' as const, do: 'retry' as const, max: 2, backoffMs: 300 }],
+            timeoutMs: 3000,
+            onError: [{ when: 'timeout' as const, do: 'retry' as const, max: 2, backoffMs: 50 }],
           }
         : s,
     )
     await store.saveCapability({ ...c, steps })
 
     const r = await run({ memberId: '40021' })
-    expect(r.status).toBe('failed')
-    if (r.status === 'failed') {
-      expect(r.class).toBe('step_timeout')
-      expect(r.step).toBe('s2')
-      expect(r.expected).toBeTruthy()
-      expect(r.observed).toBeTruthy()
-    }
+    // Recovery gives up long before the deadline: the run blocks on the
+    // unresolved target rather than ever reaching step_timeout.
+    expect(r.status).toBe('blocked')
 
     const { readFile } = await import('node:fs/promises')
     const timeline = (await readFile(join(r.evidence, 'timeline.jsonl'), 'utf8'))
@@ -221,7 +230,7 @@ describe('per-step timeout budgets', () => {
       .map((l) => JSON.parse(l) as { type: string; id?: string; rung?: string })
     const waited = timeline.filter((e) => e.type === 'step.waited' && e.id === 's2' && e.rung === 'timeout')
     expect(waited.length).toBe(2)
-  }, 60_000)
+  }, 15_000)
 
   it('still succeeds on a normal fast run with the same tightened step budget', async () => {
     await tightenStepTwo()

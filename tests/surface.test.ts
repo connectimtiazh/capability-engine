@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import type { Server } from 'node:http'
 import { createServer } from '../target-app/server.js'
-import { WebSurface, PolicyError, type Resolution } from '../src/surface/web.js'
+import { WebSurface, PolicyError, SurfaceTimeoutError, type Resolution } from '../src/surface/web.js'
 import type { PolicyConfig } from '../src/policy/allowlist.js'
 import type { TargetDescriptor } from '../src/capability/schema.js'
 
@@ -112,6 +112,23 @@ describe('WebSurface against the hostile app', () => {
     await expect(surface.act('click', r.node)).rejects.toBeInstanceOf(PolicyError)
     surface.setContext({ leaseHeld: true })
   })
+
+  // F50: Playwright's own `timeout` option treats 0 as "no timeout at all," not
+  // "already expired." A budget hitting exactly 0 is precisely what happens when a
+  // step's clock has run out — the feature's own boundary case — so act()/open()
+  // must catch it themselves before it ever reaches Playwright. A short test
+  // timeout here means a regression (falling back to Playwright's real default,
+  // tens of seconds) fails this test fast instead of stalling the whole suite.
+  it('F50: act() with a budget of exactly 0 rejects with SurfaceTimeoutError instead of waiting forever', async () => {
+    await surface.open(base + '/member/search')
+    const btn = await surface.resolve({ role: 'button', name: 'Inquire', framePath: [], fallbacks: [] })
+    if (btn.kind !== 'one') throw new Error('button not resolved')
+    await expect(surface.act('click', btn.node, undefined, { timeoutMs: 0 })).rejects.toBeInstanceOf(SurfaceTimeoutError)
+  }, 2000)
+
+  it('F50: open() with a budget of exactly 0 rejects with SurfaceTimeoutError instead of waiting forever', async () => {
+    await expect(surface.open(base + '/member/search', { timeoutMs: 0 })).rejects.toBeInstanceOf(SurfaceTimeoutError)
+  }, 2000)
 })
 
 // The frameset at "/" had never been driven before wave 3: every other test and

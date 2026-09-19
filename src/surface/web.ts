@@ -122,6 +122,13 @@ export class WebSurface {
    *  the time this throws nothing is still in flight. */
   async open(url: string, budget?: Budget): Promise<void> {
     this.check('navigate', url)
+    // F50: Playwright treats `timeout: 0` as "no timeout at all," so a budget that
+    // has hit exactly zero must never reach `page.goto()` — passing it through
+    // would invert the feature at its own boundary case, waiting forever exactly
+    // when the clock has run out. Same guard `observeBudgeted()` already has.
+    if (budget?.timeoutMs !== undefined && budget.timeoutMs <= 0) {
+      throw new SurfaceTimeoutError('step budget exhausted before navigation')
+    }
     try {
       await this.page.goto(url, {
         waitUntil: 'domcontentloaded',
@@ -202,6 +209,15 @@ export class WebSurface {
    *  which Playwright call (or action) produced it. */
   async act(action: ActionKind, node: A11yNode, value?: string, budget?: Budget): Promise<void> {
     this.check(action, this.page.url())
+    // F50: same reason as `open()` — `{ timeout: 0 }` means "no timeout" to
+    // Playwright, not "expired already." Without this guard, exactly the moment a
+    // step's budget is exhausted (the case this feature exists to handle) is the
+    // moment click/fill/selectOption would wait indefinitely instead. This also
+    // covers the recovery rungs' `dismiss` calls, which reach here with whatever
+    // `applyRecovery`'s own `remaining()` computed, and can legitimately be zero.
+    if (budget?.timeoutMs !== undefined && budget.timeoutMs <= 0) {
+      throw new SurfaceTimeoutError(`${action} budget exhausted before the action`)
+    }
     const frame = this.frameFor(node.framePath)
     const loc = frame.locator(`[data-cap-ref="${node.ref}"]`)
     const opts = budget?.timeoutMs !== undefined ? { timeout: budget.timeoutMs } : undefined
