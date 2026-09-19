@@ -60,6 +60,42 @@ describe('WebSurface against the hostile app', () => {
     expect((await surface.checkpointHolds(cp)).ok).toBe(true)
   })
 
+  it('fails field-value-matches-input when a stale value is already in the box', async () => {
+    await surface.open(base + '/member/search')
+    const box = await surface.resolve({ role: 'textbox', name: 'Member No.', framePath: [], fallbacks: [] })
+    if (box.kind !== 'one') throw new Error('box not resolved')
+    // Simulate a previous invocation's leftover value: the box holds 40021, but
+    // this invocation is for 40023.
+    await surface.act('fill', box.node, '40021')
+    const cp = { kind: 'field-value-matches-input' as const, role: 'textbox', name: 'Member No.', framePath: [], input: 'memberId' }
+    const stale = await surface.checkpointHolds(cp, (name) => (name === 'memberId' ? '40023' : undefined))
+    expect(stale.ok).toBe(false)
+    expect(stale.observed).not.toContain('40021')
+    expect(stale.observed).not.toContain('40023')
+    expect(stale.observed).toMatch(/holds .* expected/)
+  })
+
+  it('passes field-value-matches-input when the live value matches the input', async () => {
+    await surface.open(base + '/member/search')
+    const box = await surface.resolve({ role: 'textbox', name: 'Member No.', framePath: [], fallbacks: [] })
+    if (box.kind !== 'one') throw new Error('box not resolved')
+    await surface.act('fill', box.node, '40023')
+    const cp = { kind: 'field-value-matches-input' as const, role: 'textbox', name: 'Member No.', framePath: [], input: 'memberId' }
+    const ok = await surface.checkpointHolds(cp, (name) => (name === 'memberId' ? '40023' : undefined))
+    expect(ok.ok).toBe(true)
+  })
+
+  it('distinguishes field-not-found and field-empty from a value mismatch', async () => {
+    await surface.open(base + '/member/search')
+    const missing = { kind: 'field-value-matches-input' as const, role: 'textbox', name: 'Does Not Exist', framePath: [], input: 'memberId' }
+    const missingResult = await surface.checkpointHolds(missing, () => '40023')
+    expect(missingResult.observed).toMatch(/not found/)
+
+    const empty = { kind: 'field-value-matches-input' as const, role: 'textbox', name: 'Member No.', framePath: [], input: 'memberId' }
+    const emptyResult = await surface.checkpointHolds(empty, () => '40023')
+    expect(emptyResult.observed).toMatch(/empty/)
+  })
+
   it('refuses to navigate outside the allowlist', async () => {
     await expect(surface.open('http://evil.test/')).rejects.toBeInstanceOf(PolicyError)
   })

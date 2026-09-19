@@ -9,6 +9,17 @@ export const CheckpointSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('role-present'), framePath: z.array(z.string()).optional(), role: z.string(), nameContains: z.string().optional() }),
   z.object({ kind: z.literal('url-matches'), pattern: z.string() }),
   z.object({ kind: z.literal('field-has-value'), framePath: z.array(z.string()).optional(), role: z.string(), name: z.string() }),
+  // The value that landed in the control must be traced back to the input parameter
+  // that was supposed to produce it — a control merely holding *something* is not
+  // evidence the fill actually wrote what this invocation asked for (a stale value
+  // left over from a previous run would pass field-has-value silently).
+  z.object({
+    kind: z.literal('field-value-matches-input'),
+    framePath: z.array(z.string()).optional(),
+    role: z.string(),
+    name: z.string(),
+    input: z.string(),
+  }),
 ])
 export type Checkpoint = z.infer<typeof CheckpointSchema>
 
@@ -64,6 +75,15 @@ export const BusinessOutcomeSchema = z.object({
   detect: CheckpointSchema,
   terminal: z.boolean(),
   message: z.string().optional(),
+  // An outcome detector authored for one screen must never fire on another: unscoped,
+  // a string like "No record found" could match unrelated text anywhere in the app.
+  // A human author declares the scope; discovery/compile never widen it.
+  when: z
+    .object({
+      route: z.string().optional(),
+      framePath: z.array(z.string()).optional(),
+    })
+    .optional(),
 })
 export type BusinessOutcome = z.infer<typeof BusinessOutcomeSchema>
 
@@ -86,10 +106,14 @@ export const CapabilitySchema = z.object({
   steps: z.array(StepSchema).min(1),
   successCondition: CheckpointSchema,
   businessOutcomes: z.array(BusinessOutcomeSchema).default([]),
+  // Typing into a search box does not mutate the bank's state — conflating "the UI
+  // received input" with "the ledger changed" made the governance model incoherent.
+  // interaction is a fact derived from action verbs; business is a claim about the
+  // world, and businessSetBy records who is answerable for that claim.
   risk: z.object({
-    class: z.enum(['read', 'mutate']),
-    irreversible: z.boolean(),
-    requiresApproval: z.boolean(),
+    interaction: z.enum(['read', 'ui_mutation']),
+    business: z.enum(['read', 'mutation', 'irreversible', 'unclassified']),
+    businessSetBy: z.enum(['model-proposed', 'human-confirmed', 'default']),
   }),
   provenance: z.object({
     discoveredBy: z.string(),

@@ -75,9 +75,21 @@ describe('compile', () => {
     expect(c.steps.every((s) => s.checkpoint)).toBe(true)
   })
 
-  it('classifies risk as mutate when any step mutates', () => {
+  it('classifies interaction as ui_mutation when any step mutates the UI', () => {
     const c = compile(trace, { key: 'k', params: { memberId: '40021' } })
-    expect(c.risk.class).toBe('mutate')
+    expect(c.risk.interaction).toBe('ui_mutation')
+  })
+
+  it('defaults business risk to unclassified until a human or model says otherwise', () => {
+    const c = compile(trace, { key: 'k', params: { memberId: '40021' } })
+    expect(c.risk.business).toBe('unclassified')
+    expect(c.risk.businessSetBy).toBe('default')
+  })
+
+  it('records a model-proposed business risk as a hint, not authority', () => {
+    const c = compile({ ...trace, businessRiskProposed: 'irreversible' }, { key: 'k', params: { memberId: '40021' } })
+    expect(c.risk.business).toBe('irreversible')
+    expect(c.risk.businessSetBy).toBe('model-proposed')
   })
 
   it('starts at version 1.0.0 in draft', () => {
@@ -139,6 +151,40 @@ describe('compile', () => {
       { key: 'k', params: { memberId: '400', accountId: '40021' } },
     )
     expect(c.title).toBe('reconcile member {memberId} against account {accountId}')
+  })
+
+  it('loads business outcomes from the vendor registry, scoped to a route', () => {
+    const c = compile(trace, { key: 'quest-core/member.savings_balance', params: { memberId: '40021' } })
+    expect(c.businessOutcomes.length).toBeGreaterThan(0)
+    for (const o of c.businessOutcomes) {
+      expect(o.when?.route).toBe('/member/inquire')
+    }
+    expect(c.businessOutcomes.map((o) => o.code)).toContain('MEMBER_NOT_FOUND')
+  })
+
+  it('compiles with zero business outcomes when the vendor has no registry file', () => {
+    const c = compile(trace, { key: 'unregistered-vendor/some.capability', params: { memberId: '40021' } })
+    expect(c.businessOutcomes).toEqual([])
+  })
+
+  it('infers a digits-only pattern from an all-digits sample, not the sample length', () => {
+    const c = compile(trace, { key: 'k', params: { memberId: '40021' } })
+    expect(c.inputs.properties.memberId!.pattern).toBe('^[0-9]+$')
+    // A 6-digit member must not be rejected by a pattern derived from a 5-digit sample.
+    expect('123456').toMatch(new RegExp(c.inputs.properties.memberId!.pattern as string))
+  })
+
+  it('emits no pattern for a non-numeric sample', () => {
+    const c = compile(trace, { key: 'k', params: { memberId: 'AB-40021' } })
+    expect(c.inputs.properties.memberId!.pattern).toBeUndefined()
+  })
+
+  it('emits field-value-matches-input for a fill whose value came from an input', () => {
+    const c = compile(trace, { key: 'k', params: { memberId: '40021' } })
+    const fillStep = c.steps.find((s) => s.action === 'fill')!
+    expect(fillStep.checkpoint).toEqual({
+      kind: 'field-value-matches-input', role: 'textbox', name: 'Member No.', framePath: [], input: 'memberId',
+    })
   })
 
   it('treats each table cell as a candidate, as real innerText joins cells with tabs', () => {

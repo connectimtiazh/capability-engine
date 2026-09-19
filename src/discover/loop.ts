@@ -25,6 +25,10 @@ export interface Trace {
   extracted: Record<string, { value: string; as: string; from: TargetDescriptor }>
   observedOutcomes: { text: string; url: string }[]
   finalText: string
+  // A hint, never authority: the model's own guess, offered with its "done", at
+  // what this operation does to the bank's records. compile() records it as
+  // 'model-proposed', which carries no weight in the approval gate on its own.
+  businessRiskProposed?: 'read' | 'mutation' | 'irreversible'
 }
 
 export interface DiscoveryOptions {
@@ -77,7 +81,8 @@ export async function runDiscovery(opts: DiscoveryOptions): Promise<Trace> {
 
       if (proposal.kind === 'done') {
         trace.finalText = observation.frames.map((f) => f.text).join('\n')
-        await rec.event('discovery.done', { summary: proposal.summary })
+        trace.businessRiskProposed = proposal.businessRisk
+        await rec.event('discovery.done', { summary: proposal.summary, businessRisk: proposal.businessRisk })
         await rec.shot(surface, 'final')
         return trace
       }

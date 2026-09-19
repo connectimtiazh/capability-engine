@@ -1,14 +1,35 @@
+import { existsSync, readFileSync } from 'node:fs'
 import { classifyAction } from '../policy/allowlist.js'
 import { CapabilitySchema, type Capability, type Checkpoint, type Step, type BusinessOutcome } from '../capability/schema.js'
 import type { Trace, TraceStep } from '../discover/loop.js'
 
-/** Runtime conditions worth declaring as outcomes when discovery happened to see
- *  them. Detectors are authored here, at compile time, and then only ever matched
- *  at replay — the model never interprets a result at run time. */
-const KNOWN_OUTCOMES: { code: string; text: string; message: string }[] = [
-  { code: 'MEMBER_NOT_FOUND', text: 'No record found', message: 'No member exists with that number.' },
-  { code: 'ACCOUNT_RESTRICTED', text: 'Access restricted', message: 'This member requires elevated entitlements.' },
-]
+interface OutcomeRegistryEntry {
+  code: string
+  text: string
+  message?: string
+  terminal: boolean
+  when?: { route?: string; framePath?: string[] }
+}
+
+/** Business-outcome detectors are authored by a human, per vendor application, in
+ *  vendors/<product>.outcomes.json — never invented by discovery or hardcoded
+ *  compiler defaults. A capability for "update mailing address" must not inherit
+ *  a detector meant for a balance inquiry just because both happen to be QuestCore
+ *  screens; a global, unscoped detector is a confident wrong answer waiting to
+ *  happen. If a vendor has no registry file, the capability compiles with zero
+ *  outcomes rather than guessing. */
+function loadOutcomeRegistry(vendorProduct: string): BusinessOutcome[] {
+  const path = `vendors/${vendorProduct}.outcomes.json`
+  if (!existsSync(path)) return []
+  const entries = JSON.parse(readFileSync(path, 'utf8')) as OutcomeRegistryEntry[]
+  return entries.map((e) => ({
+    code: e.code,
+    detect: { kind: 'text-present', text: e.text, framePath: e.when?.framePath } as Checkpoint,
+    terminal: e.terminal,
+    message: e.message,
+    when: e.when,
+  }))
+}
 
 /** The most distinctive short line on the screen after an action becomes that step's
  *  checkpoint. Lines carrying any value that varies per invocation — a supplied
@@ -40,8 +61,15 @@ function distinctiveLine(finalText: string, priorText: string, volatile: string[
   )
 }
 
-function checkpointFor(step: TraceStep, prior: string, volatile: string[]): Checkpoint {
+function checkpointFor(step: TraceStep, prior: string, volatile: string[], fromInput?: string): Checkpoint {
   if (step.action === 'fill') {
+    // A fill whose value was lifted from a declared input parameter can, and must,
+    // prove the control holds *that* value — not merely that it holds something.
+    // A literal fill (nothing to trace back to a caller-supplied value) keeps the
+    // weaker field-has-value check.
+    if (fromInput) {
+      return { kind: 'field-value-matches-input', role: step.target.role, name: step.target.name ?? '', framePath: step.target.framePath, input: fromInput }
+    }
     return { kind: 'field-has-value', role: step.target.role, name: step.target.name ?? '', framePath: step.target.framePath }
   }
   return { kind: 'text-present', text: distinctiveLine(step.textAfter, prior, volatile), framePath: step.target.framePath }
@@ -97,7 +125,7 @@ export function compile(
             ? [{ strategy: 'nth-input-in-form', form: 0, index: 0 }]
             : [],
       },
-      checkpoint: checkpointFor(s, prior, volatile),
+      checkpoint: checkpointFor(s, prior, volatile, match?.[0]),
       onError: [
         { when: 'dialog-present', match: 'Message of the Day', do: 'dismiss' },
         { when: 'session-expired', do: 'reauth' },
@@ -117,7 +145,11 @@ export function compile(
     inputs.required.push(name)
     inputs.properties[name] = {
       type: 'string',
-      pattern: /^\d+$/.test(value) ? `^[0-9]{${value.length}}$` : undefined,
+      // Infer the character class from the sample, never its length: a single
+      // 5-digit sample must not produce ^[0-9]{5}$, which would reject a legitimate
+      // 6-digit member. All-digits gets a digits-only pattern with no length bound;
+      // anything else gets no pattern at all rather than a guess at its shape.
+      pattern: /^\d+$/.test(value) ? '^[0-9]+$' : undefined,
       // Anything a caller supplies per invocation is treated as identifying data
       // until a human reviewing the artifact says otherwise. Over-redacting is
       // recoverable; under-redacting regulated data is not.
@@ -150,12 +182,8 @@ export function compile(
     })
   }
 
-  const businessOutcomes: BusinessOutcome[] = KNOWN_OUTCOMES.map((o) => ({
-    code: o.code,
-    detect: { kind: 'text-present', text: o.text } as Checkpoint,
-    terminal: true,
-    message: o.message,
-  }))
+  const vendorProduct = opts.key.split('/')[0] ?? 'unknown'
+  const businessOutcomes: BusinessOutcome[] = loadOutcomeRegistry(vendorProduct)
 
   const parameterisedGoal = parameterise(trace.goal)
 
@@ -166,7 +194,7 @@ export function compile(
     title: parameterisedGoal,
     description: `Discovered from the goal: ${parameterisedGoal}`,
     surface: { kind: 'web' },
-    vendor: { product: opts.key.split('/')[0] ?? 'unknown' },
+    vendor: { product: vendorProduct },
     inputs,
     outputs,
     steps: [...steps, ...extractSteps],
@@ -176,9 +204,14 @@ export function compile(
     },
     businessOutcomes,
     risk: {
-      class: trace.steps.some((s) => classifyAction(s.action) === 'mutate') ? 'mutate' : 'read',
-      irreversible: false,
-      requiresApproval: false,
+      // interaction is a fact about the action verbs the recipe performs — typing
+      // and clicking mutate the UI regardless of what they accomplish in the bank.
+      interaction: trace.steps.some((s) => classifyAction(s.action) === 'mutate') ? 'ui_mutation' : 'read',
+      // business is a claim about the bank's ledger, never inferred from the UI
+      // verbs. Discovery may propose one (a hint, never authority); absent that,
+      // it stays unclassified until a human reviewing the artifact says otherwise.
+      business: trace.businessRiskProposed ?? 'unclassified',
+      businessSetBy: trace.businessRiskProposed ? 'model-proposed' : 'default',
     },
     provenance: {
       discoveredBy: trace.model,

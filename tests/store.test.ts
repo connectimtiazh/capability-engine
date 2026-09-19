@@ -18,7 +18,7 @@ const cap = (over: Partial<Capability> = {}): Capability => ({
   steps: [{ id: 's1', intent: 'i', action: 'click', target: { role: 'button', name: 'Inquire', framePath: [], fallbacks: [] }, checkpoint: { kind: 'text-present', text: 'Share Balance' }, onError: [], timeoutMs: 8000 }],
   successCondition: { kind: 'text-present', text: 'Share Balance' },
   businessOutcomes: [],
-  risk: { class: 'read', irreversible: false, requiresApproval: false },
+  risk: { interaction: 'read', business: 'unclassified', businessSetBy: 'default' },
   provenance: { discoveredBy: 't', discoveryRunId: 'r', recordedAt: '2026-09-17T00:00:00Z', humanEdits: [] },
   approval: { state: 'draft', replayStats: { attempts: 0, successes: 0, lastFailure: null } },
   ...over,

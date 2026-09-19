@@ -15,7 +15,11 @@ Reply with ONE JSON object and nothing else. Valid shapes:
  "from":{"role":"table","name":"","framePath":[...],"fallbacks":[],
          "anchor":{"kind":"table-cell","rowHeader":"<the visible label beside the value>","offset":{"col":1}}}}
 
-{"kind":"done","summary":"<what was achieved>"}
+{"kind":"done","summary":"<what was achieved>",
+ "businessRisk":"read"|"mutation"|"irreversible" (optional — your best guess at what this
+ operation does to the bank's own records, e.g. a lookup is "read", a transfer is
+ "mutation", a closure is "irreversible". This is a hint for a human to review, never
+ a decision on its own — omit it if you are not sure)}
 
 {"kind":"stuck","why":"<what is blocking you>"}
 

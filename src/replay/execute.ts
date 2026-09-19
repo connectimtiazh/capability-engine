@@ -115,7 +115,18 @@ export async function replay(opts: ReplayOptions): Promise<ReplayResult> {
 
     const surface = new WebSurface(policy, opts.headless ?? false)
     await surface.start()
-    surface.setContext({ approvalState: capability.approval.state, leaseHeld: true })
+    surface.setContext({
+      approvalState: capability.approval.state, leaseHeld: true,
+      businessRisk: capability.risk.business, businessSetBy: capability.risk.businessSetBy,
+    })
+
+    // Resolves an input parameter's name back to the exact value this invocation
+    // supplied, so a field-value-matches-input checkpoint can prove the control
+    // holds *this* run's value rather than merely something.
+    const resolveInput = (inputName: string): string | undefined => {
+      const v = opts.params[inputName]
+      return v === undefined ? undefined : String(v)
+    }
 
     const outputs: Record<string, unknown> = {}
 
@@ -392,7 +403,7 @@ export async function replay(opts: ReplayOptions): Promise<ReplayResult> {
           }
         }
 
-        let cp = await surface.checkpointHolds(step.checkpoint)
+        let cp = await surface.checkpointHolds(step.checkpoint, resolveInput)
         if (!cp.ok) {
           const outcomeNow = await detectBusinessOutcome(surface, capability.businessOutcomes)
           if (outcomeNow) {
@@ -404,7 +415,7 @@ export async function replay(opts: ReplayOptions): Promise<ReplayResult> {
           const recovered = await applyRecovery(surface, step.onError, { entryPoint })
           if (recovered.kind !== 'not-applicable') {
             await rec.event(recovered.kind === 'recovered' ? 'step.recovered' : 'step.waited', { id: step.id, rung: recovered.rung })
-            cp = await surface.checkpointHolds(step.checkpoint)
+            cp = await surface.checkpointHolds(step.checkpoint, resolveInput)
           }
         }
 
@@ -415,7 +426,7 @@ export async function replay(opts: ReplayOptions): Promise<ReplayResult> {
         await rec.event('step.ok', { id: step.id })
       }
 
-      const success = await surface.checkpointHolds(capability.successCondition)
+      const success = await surface.checkpointHolds(capability.successCondition, resolveInput)
       if (!success.ok) {
         return await fail('(successCondition)', JSON.stringify(capability.successCondition), success.observed, 'checkpoint_failed')
       }

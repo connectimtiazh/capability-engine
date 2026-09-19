@@ -7,6 +7,11 @@ export interface GateRequest {
   policy: PolicyConfig
   approvalState: 'draft' | 'approved'
   leaseHeld: boolean
+  // Facts about the capability's declared business risk, never a model's say-so:
+  // businessSetBy records who is answerable for businessRisk, and only a human
+  // confirming it lets an irreversible capability's mutations run unattended.
+  businessRisk?: 'read' | 'mutation' | 'irreversible' | 'unclassified'
+  businessSetBy?: 'model-proposed' | 'human-confirmed' | 'default'
 }
 
 export type GateVerdict =
@@ -34,8 +39,17 @@ export function gate(req: GateRequest): GateVerdict {
     return { verdict: 'DENY', reason: `url_not_permitted:${req.url}` }
   }
 
-  if (classifyAction(req.action) === 'mutate' && req.approvalState === 'draft') {
-    return { verdict: 'HOLD', reason: `unapproved_mutation:${req.action}` }
+  if (classifyAction(req.action) === 'mutate') {
+    if (req.approvalState === 'draft') {
+      return { verdict: 'HOLD', reason: `unapproved_mutation:${req.action}` }
+    }
+    // Approval lifts the draft hold, but it does not by itself vouch for an
+    // irreversible business consequence — that is a separate claim, and one a
+    // model proposing it or a compiler defaulting it does not get to make good on.
+    // Only a human explicitly confirming it does.
+    if (req.businessRisk === 'irreversible' && req.businessSetBy !== 'human-confirmed') {
+      return { verdict: 'HOLD', reason: 'unconfirmed_irreversible_business_risk' }
+    }
   }
 
   return { verdict: 'PASS' }

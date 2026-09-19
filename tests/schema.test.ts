@@ -33,9 +33,12 @@ const valid = {
   ],
   successCondition: { kind: 'text-present', framePath: ['main'], text: 'Share Balance' },
   businessOutcomes: [
-    { code: 'MEMBER_NOT_FOUND', detect: { kind: 'text-present', text: 'No record found' }, terminal: true, message: 'No such member.' },
+    {
+      code: 'MEMBER_NOT_FOUND', detect: { kind: 'text-present', text: 'No record found' },
+      terminal: true, message: 'No such member.', when: { route: '/member/inquire' },
+    },
   ],
-  risk: { class: 'read', irreversible: false, requiresApproval: false },
+  risk: { interaction: 'read', business: 'unclassified', businessSetBy: 'default' },
   provenance: { discoveredBy: 'test', discoveryRunId: 'run_1', recordedAt: '2026-09-17T00:00:00Z', humanEdits: [] },
   approval: { state: 'draft', replayStats: { attempts: 0, successes: 0, lastFailure: null } },
 }
@@ -49,8 +52,21 @@ describe('CapabilitySchema', () => {
     expect(() => CapabilitySchema.parse({ ...valid, version: 'v1' })).toThrow()
   })
 
-  it('rejects an unknown result of risk.class', () => {
-    expect(() => CapabilitySchema.parse({ ...valid, risk: { ...valid.risk, class: 'destroy' } })).toThrow()
+  it('rejects an unknown result of risk.interaction', () => {
+    expect(() => CapabilitySchema.parse({ ...valid, risk: { ...valid.risk, interaction: 'destroy' } })).toThrow()
+  })
+
+  it('rejects an unknown result of risk.business', () => {
+    expect(() => CapabilitySchema.parse({ ...valid, risk: { ...valid.risk, business: 'destroy' } })).toThrow()
+  })
+
+  it('accepts a field-value-matches-input checkpoint', () => {
+    expect(() =>
+      CapabilitySchema.parse({
+        ...valid,
+        steps: [{ ...valid.steps[0], checkpoint: { kind: 'field-value-matches-input', role: 'textbox', name: 'Member No.', input: 'memberId' } }],
+      }),
+    ).not.toThrow()
   })
 
   it('requires at least one step', () => {

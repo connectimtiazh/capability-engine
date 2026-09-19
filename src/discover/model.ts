@@ -10,7 +10,7 @@ export interface ProposeInput {
 export type ProposedAction =
   | { kind: 'act'; action: ActionKind; target: TargetDescriptor; value?: string; intent: string }
   | { kind: 'extract'; name: string; as: 'string' | 'number' | 'date'; from: TargetDescriptor; intent: string }
-  | { kind: 'done'; summary: string }
+  | { kind: 'done'; summary: string; businessRisk?: 'read' | 'mutation' | 'irreversible' }
   | { kind: 'stuck'; why: string }
 
 export interface ModelClient {

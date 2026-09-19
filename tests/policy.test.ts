@@ -70,6 +70,26 @@ describe('gate', () => {
   it('reads a draft capability without holding', () => {
     expect(gate({ ...base, action: 'read', approvalState: 'draft' })).toEqual({ verdict: 'PASS' })
   })
+
+  it('does not hold an approved, read-business capability on a mutating action', () => {
+    expect(gate({ ...base, action: 'click', approvalState: 'approved', businessRisk: 'read', businessSetBy: 'default' }))
+      .toEqual({ verdict: 'PASS' })
+  })
+
+  it('holds an approved capability marked irreversible by default', () => {
+    expect(gate({ ...base, action: 'click', approvalState: 'approved', businessRisk: 'irreversible', businessSetBy: 'default' }))
+      .toMatchObject({ verdict: 'HOLD', reason: expect.stringContaining('irreversible') })
+  })
+
+  it('holds an approved capability marked irreversible by a model proposal', () => {
+    expect(gate({ ...base, action: 'click', approvalState: 'approved', businessRisk: 'irreversible', businessSetBy: 'model-proposed' }))
+      .toMatchObject({ verdict: 'HOLD' })
+  })
+
+  it('passes an approved, irreversible capability once a human has confirmed it', () => {
+    expect(gate({ ...base, action: 'click', approvalState: 'approved', businessRisk: 'irreversible', businessSetBy: 'human-confirmed' }))
+      .toEqual({ verdict: 'PASS' })
+  })
 })
 
 describe('redactParams', () => {

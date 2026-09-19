@@ -18,7 +18,7 @@
     "properties": {
       "memberId": {
         "type": "string",
-        "pattern": "^[0-9]{5}$",
+        "pattern": "^[0-9]+$",
         "x-sensitivity": "pii"
       }
     }
@@ -55,10 +55,11 @@
         "fromInput": "memberId"
       },
       "checkpoint": {
-        "kind": "field-has-value",
+        "kind": "field-value-matches-input",
         "framePath": [],
         "role": "textbox",
-        "name": "Member No."
+        "name": "Member No.",
+        "input": "memberId"
       },
       "onError": [
         {
@@ -162,7 +163,10 @@
         "text": "No record found"
       },
       "terminal": true,
-      "message": "No member exists with that number."
+      "message": "No member exists with that number.",
+      "when": {
+        "route": "/member/inquire"
+      }
     },
     {
       "code": "ACCOUNT_RESTRICTED",
@@ -171,32 +175,28 @@
         "text": "Access restricted"
       },
       "terminal": true,
-      "message": "This member requires elevated entitlements."
+      "message": "This member requires elevated entitlements.",
+      "when": {
+        "route": "/member/inquire"
+      }
     }
   ],
   "risk": {
-    "class": "mutate",
-    "irreversible": false,
-    "requiresApproval": false
+    "interaction": "ui_mutation",
+    "business": "unclassified",
+    "businessSetBy": "default"
   },
   "provenance": {
     "discoveredBy": "anthropic/claude-sonnet-5",
     "discoveryRunId": "disc_40ec511e",
-    "recordedAt": "2026-09-18T13:30:38.198Z",
-    "humanEdits": [
-      {
-        "at": "2026-09-18T13:41:27.766Z",
-        "by": "operator:local",
-        "note": "approved for unattended replay"
-      }
-    ]
+    "recordedAt": "2026-09-19T10:27:36.294Z",
+    "humanEdits": []
   },
   "approval": {
-    "state": "approved",
-    "approvedBy": "operator:local",
+    "state": "draft",
     "replayStats": {
-      "attempts": 15,
-      "successes": 12,
+      "attempts": 0,
+      "successes": 0,
       "lastFailure": null
     }
   }

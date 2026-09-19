@@ -3,6 +3,7 @@ import { writeFile } from 'node:fs/promises'
 import type { ActionKind, TargetDescriptor, Checkpoint } from '../capability/schema.js'
 import { gate } from '../policy/gate.js'
 import type { PolicyConfig } from '../policy/allowlist.js'
+import { redactValue } from '../policy/redact.js'
 import { resolveDescriptor } from './resolver.js'
 import { PolicyError, type A11yNode, type FrameSnapshot, type Observation, type OperatorHandle, type Resolution } from './types.js'
 
@@ -59,12 +60,21 @@ export class WebSurface {
   private page!: Page
   private approvalState: 'draft' | 'approved' = 'draft'
   private leaseHeld = true
+  private businessRisk: 'read' | 'mutation' | 'irreversible' | 'unclassified' = 'unclassified'
+  private businessSetBy: 'model-proposed' | 'human-confirmed' | 'default' = 'default'
 
   constructor(private readonly policy: PolicyConfig, private readonly headless = false) {}
 
-  setContext(c: { approvalState?: 'draft' | 'approved'; leaseHeld?: boolean }): void {
+  setContext(c: {
+    approvalState?: 'draft' | 'approved'
+    leaseHeld?: boolean
+    businessRisk?: 'read' | 'mutation' | 'irreversible' | 'unclassified'
+    businessSetBy?: 'model-proposed' | 'human-confirmed' | 'default'
+  }): void {
     if (c.approvalState) this.approvalState = c.approvalState
     if (c.leaseHeld !== undefined) this.leaseHeld = c.leaseHeld
+    if (c.businessRisk) this.businessRisk = c.businessRisk
+    if (c.businessSetBy) this.businessSetBy = c.businessSetBy
   }
 
   async start(): Promise<void> {
@@ -82,7 +92,10 @@ export class WebSurface {
   /** Every action funnels through here. The gate lives inside the only module that
    *  can touch the surface, so neither discovery nor replay can route around it. */
   private check(action: ActionKind, url: string): void {
-    const v = gate({ action, url, policy: this.policy, approvalState: this.approvalState, leaseHeld: this.leaseHeld })
+    const v = gate({
+      action, url, policy: this.policy, approvalState: this.approvalState, leaseHeld: this.leaseHeld,
+      businessRisk: this.businessRisk, businessSetBy: this.businessSetBy,
+    })
     if (v.verdict !== 'PASS') throw new PolicyError(v.verdict, v.reason)
   }
 
@@ -141,7 +154,10 @@ export class WebSurface {
     else throw new Error(`act() cannot perform ${action}`)
   }
 
-  async checkpointHolds(c: Checkpoint): Promise<{ ok: boolean; observed: string }> {
+  async checkpointHolds(
+    c: Checkpoint,
+    resolveInput?: (inputName: string) => string | undefined,
+  ): Promise<{ ok: boolean; observed: string }> {
     const obs = await this.observe()
     const scope = (path?: string[]) =>
       path ? obs.frames.filter((f) => f.path.join('/') === path.join('/')) : obs.frames
@@ -160,10 +176,30 @@ export class WebSurface {
       const ok = nodes.some((n) => n.role === c.role && (!c.nameContains || n.name.includes(c.nameContains)))
       return { ok, observed: ok ? `role ${c.role} present` : `roles present: ${[...new Set(nodes.map((n) => n.role))].join(',')}` }
     }
+    const match = nodes.find((n) => n.role === c.role && (n.name === c.name || n.labelText === c.name))
+    if (c.kind === 'field-value-matches-input') {
+      // A control existing, or even holding *something*, is not evidence this
+      // invocation's fill actually landed — a stale value left over from a
+      // previous run (a different member's number, say) would pass a mere
+      // presence check silently. This must compare the live value against the
+      // exact input this step was supposed to write.
+      if (!match) return { ok: false, observed: `field ${c.name} not found` }
+      const live = (match.value ?? '').trim()
+      if (!live) return { ok: false, observed: `field ${c.name} found but empty` }
+      const expected = (resolveInput?.(c.input) ?? '').trim()
+      if (expected && live === expected) {
+        return { ok: true, observed: `field ${c.name} holds the expected value` }
+      }
+      // Redacted the same way declared-sensitive values are redacted everywhere
+      // else in this system: never print the raw value in a diagnostic message.
+      return {
+        ok: false,
+        observed: `field ${c.name} holds ${redactValue(live, 'pii')}, expected ${redactValue(expected, 'pii')}`,
+      }
+    }
     // field-has-value: a node existing is not evidence anything was typed into it — the
     // field itself is on screen before and after a fill. This must check the node's
     // actual current value, or it can never fail while the control is merely present.
-    const match = nodes.find((n) => n.role === c.role && (n.name === c.name || n.labelText === c.name))
     if (!match) return { ok: false, observed: `field ${c.name} not found` }
     const hasValue = (match.value ?? '').trim().length > 0
     return {
