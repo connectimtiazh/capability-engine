@@ -129,6 +129,7 @@ export class WebSurface {
     if (budget?.timeoutMs !== undefined && budget.timeoutMs <= 0) {
       throw new SurfaceTimeoutError('step budget exhausted before navigation')
     }
+    const start = Date.now()
     try {
       await this.page.goto(url, {
         waitUntil: 'domcontentloaded',
@@ -139,6 +140,31 @@ export class WebSurface {
         throw new SurfaceTimeoutError(`open did not complete within ${budget.timeoutMs}ms: ${String(e)}`)
       }
       throw e
+    }
+
+    // F52: a frameset's own document can reach domcontentloaded (the goto above
+    // resolving) long before its named child frames finish loading their own src
+    // — each is a separate navigation, racing nothing this call has waited for.
+    // A child frame's `name()` does not report correctly (and its nodes are not
+    // safely addressable by framePath) until its own navigation actually commits,
+    // which does not happen until this wait returns. Bounded by whatever remains
+    // of this call's budget, so a frameset whose children never load fails
+    // cleanly at this call with a SurfaceTimeoutError instead of a silent
+    // mis-scoped read downstream.
+    const children = this.page.frames().filter((f) => f !== this.page.mainFrame())
+    for (const child of children) {
+      const remaining = budget?.timeoutMs !== undefined ? budget.timeoutMs - (Date.now() - start) : undefined
+      if (remaining !== undefined && remaining <= 0) {
+        throw new SurfaceTimeoutError(`open did not complete within ${budget!.timeoutMs}ms: a child frame never reached domcontentloaded`)
+      }
+      try {
+        await child.waitForLoadState('domcontentloaded', remaining !== undefined ? { timeout: remaining } : undefined)
+      } catch (e) {
+        if (budget?.timeoutMs !== undefined && /timeout/i.test(String(e))) {
+          throw new SurfaceTimeoutError(`open did not complete within ${budget.timeoutMs}ms: ${String(e)}`)
+        }
+        throw e
+      }
     }
   }
 

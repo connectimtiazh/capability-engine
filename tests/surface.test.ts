@@ -1,9 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import type { Server } from 'node:http'
 import { createServer } from '../target-app/server.js'
-import { WebSurface, PolicyError, SurfaceTimeoutError, type Resolution } from '../src/surface/web.js'
+import { WebSurface, PolicyError, SurfaceTimeoutError } from '../src/surface/web.js'
 import type { PolicyConfig } from '../src/policy/allowlist.js'
-import type { TargetDescriptor } from '../src/capability/schema.js'
 
 const PORT = 4112
 const base = `http://localhost:${PORT}`
@@ -135,36 +134,27 @@ describe('WebSurface against the hostile app', () => {
 // demo enters /member/search directly, so framePath was always [] and frame
 // support was built but unproven.
 //
-// A child <frame src="..."> hasn't necessarily finished loading its own document
-// by the time the parent frameset's "domcontentloaded" fires, so a single
-// surface.resolve() right after open() can race the "main" frame's own load. This
-// is exactly the bounded "wait, then re-observe" pattern replay's own resolve
-// loop (src/replay/execute.ts) already applies for the same reason — it just
-// isn't available to a raw WebSurface test, so it's reproduced locally here.
-async function resolveInFrame(s: WebSurface, target: TargetDescriptor, timeoutMs = 2000): Promise<Resolution> {
-  const deadline = Date.now() + timeoutMs
-  let r = await s.resolve(target)
-  while (r.kind === 'none' && Date.now() < deadline) {
-    await new Promise((res) => setTimeout(res, 50))
-    r = await s.resolve(target)
-  }
-  return r
-}
-
+// F52: a single, one-shot surface.resolve() right after open() is deliberately
+// used below rather than a retrying/polling helper. A child <frame src="..."> is
+// not guaranteed to have committed its own navigation (and so report its real
+// name()/url()) by the time the parent frameset's own "domcontentloaded" fires —
+// open() itself is now responsible for waiting that out (see F52 in
+// src/surface/web.ts), so a test that papers over the race with its own retry
+// loop would never notice if that responsibility regressed.
 describe('the frameset at /', () => {
   it('resolves the member number box inside the "main" child frame, not the top document', async () => {
     await surface.open(base + '/')
-    const r = await resolveInFrame(surface, { role: 'textbox', name: 'Member No.', framePath: ['main'], fallbacks: [] })
+    const r = await surface.resolve({ role: 'textbox', name: 'Member No.', framePath: ['main'], fallbacks: [] })
     expect(r.kind).toBe('one')
     if (r.kind === 'one') expect(r.node.framePath).toEqual(['main'])
   })
 
   it('fills, clicks Inquire and reads the balance entirely inside "main" while the top-level URL stays at /', async () => {
     await surface.open(base + '/')
-    const box = await resolveInFrame(surface, { role: 'textbox', name: 'Member No.', framePath: ['main'], fallbacks: [] })
+    const box = await surface.resolve({ role: 'textbox', name: 'Member No.', framePath: ['main'], fallbacks: [] })
     if (box.kind !== 'one') throw new Error('box not resolved')
     await surface.act('fill', box.node, '40021')
-    const btn = await resolveInFrame(surface, { role: 'button', name: 'Inquire', framePath: ['main'], fallbacks: [] })
+    const btn = await surface.resolve({ role: 'button', name: 'Inquire', framePath: ['main'], fallbacks: [] })
     if (btn.kind !== 'one') throw new Error('button not resolved')
     await surface.act('click', btn.node)
     const cp = await surface.checkpointHolds({ kind: 'text-present', text: 'Share Balance', framePath: ['main'] })
@@ -174,4 +164,18 @@ describe('the frameset at /', () => {
     expect(surface.url()).toBe(base + '/')
     expect(surface.frameUrl(['main'])).toContain('/member/inquire')
   })
+
+  // F52: this is the test that actually distinguishes a fixed open() from a
+  // broken one. `?inject=slow-frame` delays the "main" child's own response by
+  // 3s; a single, non-retrying resolve() immediately after open() returns can
+  // only see the textbox if open() itself waited for that child to commit.
+  // Confirmed by hand that reverting the child-frame wait in
+  // src/surface/web.ts's open() turns this test red — resolve() comes back
+  // 'none' because the "main" frame still hasn't committed its navigation —
+  // before restoring the fix. See wave3-report.md.
+  it('a one-shot resolve immediately after open() finds the textbox even when the "main" frame is slow to load', async () => {
+    await surface.open(base + '/?inject=slow-frame')
+    const r = await surface.resolve({ role: 'textbox', name: 'Member No.', framePath: ['main'], fallbacks: [] })
+    expect(r.kind).toBe('one')
+  }, 15_000)
 })

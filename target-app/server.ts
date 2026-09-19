@@ -2,7 +2,7 @@ import express from 'express'
 import type { Server } from 'node:http'
 import { lookup, AS_OF } from './data.js'
 
-type Inject = 'motd' | 'session-timeout' | 'unknown-dialog' | 'slow' | 'slow-inquire' | undefined
+type Inject = 'motd' | 'session-timeout' | 'unknown-dialog' | 'slow' | 'slow-inquire' | 'slow-frame' | undefined
 
 const chrome = (body: string) => `<html><head><title>QuestCore 8.3</title></head>
 <body bgcolor="#EFEFEF"><table width="100%" cellpadding="4" cellspacing="0" border="0">
@@ -41,11 +41,17 @@ export function createServer(): Server {
 
   app.get('/health', (_req, res) => { res.json({ ok: true }) })
 
-  app.get('/', (_req, res) => {
+  app.get('/', (req, res) => {
+    // F52: `?inject=slow-frame` forces the frame race a frameset always risks —
+    // the "main" child frame's own load lags behind the parent frameset document's
+    // domcontentloaded — by delaying only the child's request, never the parent's.
+    // Carried on the frame's own `src` (the child issues a separate navigation),
+    // exactly like `slowInquire` carries `?inject=slow` on the form's own action.
+    const slowFrame = (req.query.inject as Inject) === 'slow-frame'
     res.type('html').send(`<html><head><title>QuestCore 8.3</title></head>
 <frameset rows="70,*" border="1">
   <frame src="/nav" name="nav">
-  <frame src="/member/search" name="main">
+  <frame src="/member/search${slowFrame ? '?inject=slow-frame' : ''}" name="main">
 </frameset></html>`)
   })
 
@@ -56,6 +62,14 @@ export function createServer(): Server {
   app.get('/member/search', async (req, res) => {
     const inject = req.query.inject as Inject
     if (inject === 'slow') await new Promise((r) => setTimeout(r, 3000))
+    // F52: a step's default timeout-recovery rung (max 2, backoffMs 500) only
+    // covers roughly 1s of "wait and recheck" before giving up — measured directly
+    // (see wave3-report.md): the "main" frame's name/URL do not appear in
+    // page.frames() until the response actually lands, so anything short of that
+    // ~1s cushion would pass by accident regardless of whether open() waits. 3s is
+    // comfortably past it, so this only survives if the entry navigation itself
+    // waits for the child frame.
+    if (inject === 'slow-frame') await new Promise((r) => setTimeout(r, 3000))
     if (inject === 'session-timeout') {
       return res.type('html').send(chrome(
         `<font size="2" color="#AA0000"><b>Your session has expired.</b></font>

@@ -281,8 +281,8 @@ describe('replay through the frameset at /', () => {
     })
   })
 
-  const runFrameset = (params: Record<string, unknown>) =>
-    replay({ ref: REF_FRAMESET, tenant: TENANT_FRAMESET, params, storeRoot: dir, headless: true, policyOverride: policy })
+  const runFrameset = (params: Record<string, unknown>, entry?: string) =>
+    replay({ ref: REF_FRAMESET, tenant: TENANT_FRAMESET, params, storeRoot: dir, headless: true, policyOverride: policy, entryPointOverride: entry })
 
   it('resolves and fills Member No. inside "main", clicks Inquire, and extracts the balance', async () => {
     const r = await runFrameset({ memberId: '40021' })
@@ -301,6 +301,26 @@ describe('replay through the frameset at /', () => {
     const r = await runFrameset({ memberId: '99999' })
     expect(r.status).toBe('business_outcome')
     if (r.status === 'business_outcome') expect(r.code).toBe('MEMBER_NOT_FOUND')
+  }, 60_000)
+
+  // F52: end-to-end regression coverage for a "main" frame slower than any
+  // incidental retry cushion (3s of injected latency). NOTE: measured by hand
+  // (see wave3-report.md) that this specific assertion — full replay through
+  // the frameset still succeeding — passes with or without open()'s child-frame
+  // wait, because WebSurface.observe()'s frame.evaluate() call already blocks
+  // until a pending navigation commits, which happens to absorb the delay on
+  // whichever step first calls it. That is exactly the "accidental, undesigned"
+  // cushion the reviewer flagged, just via a different mechanism than the
+  // timeout-recovery rung originally suspected. The test that actually
+  // distinguishes fixed from broken is
+  // tests/surface.test.ts > "the frameset at /" > "a one-shot resolve
+  // immediately after open() finds the textbox even when the "main" frame is
+  // slow to load" — kept here anyway as a real integration guard that the
+  // frameset-plus-slow-child path keeps working end to end.
+  it('survives a "main" frame slower than any incidental retry cushion', async () => {
+    const r = await runFrameset({ memberId: '40021' }, base + '/?inject=slow-frame')
+    expect(r.status).toBe('success')
+    if (r.status === 'success') expect(r.outputs.savingsBalance).toBe(1284.55)
   }, 60_000)
 })
 
