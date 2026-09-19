@@ -10,5 +10,5 @@
     "types": ["node"],
     "noEmit": true
   },
-  "include": ["src/**/*", "target-app/**/*", "tests/**/*"]
+  "include": ["src/**/*", "target-app/**/*", "tests/**/*", "scripts/**/*"]
 }
